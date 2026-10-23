@@ -12,6 +12,7 @@
 #include "ocijail/kill.h"
 #include "ocijail/list.h"
 #include "ocijail/main.h"
+#include "ocijail/ps.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
 
@@ -30,6 +31,7 @@ int main(int argc, char** argv) {
     kill::init(app);
     state::init(app);
     list::init(app);
+    ps::init(app);
     features::init(app);
 
     try {

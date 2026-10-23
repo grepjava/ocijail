@@ -324,6 +324,35 @@ class test_run(unittest.TestCase):
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
 
+    def test_ps(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "sleep 60 & echo $!; wait $!"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            self.start()
+            sleep_pid = int(stdout.readline())
+            expected = sorted([pid, sleep_pid])
+
+            ret = subprocess.run(
+                args=[cmd, "ps", "--format", "json", self.container_id],
+                capture_output=True)
+            self.assertEqual(ret.returncode, 0)
+            self.assertEqual(json.loads(ret.stdout), expected)
+
+            ret = subprocess.run(
+                args=[cmd, "ps", self.container_id], capture_output=True)
+            self.assertEqual(ret.returncode, 0)
+            self.assertEqual(
+                ret.stdout.decode("utf-8").split(),
+                ["PID"] + [str(p) for p in expected])
+
+            os.kill(sleep_pid, 9)
+            stdout.close()
+            stderr.close()
+            os.waitpid(pid, os.WEXITED)
+
     def test_tmpcopyup(self):
         # Running the container should copy the contents of /tmpdir to a
         # tmpfs which is mounted over it
