@@ -54,6 +54,14 @@ exec::exec(main_app& app) : app_(app) {
 }
 
 void exec::run() {
+    // The parser leaves unrecognized options in the command instead of
+    // reporting them, so check for them here.
+    for (auto& arg : {id_, args_.empty() ? std::string{} : args_[0]}) {
+        if (arg.starts_with("-")) {
+            throw std::runtime_error("exec: unknown option " + arg);
+        }
+    }
+
     json process_json;
     if (process_) {
         if (!args_.empty()) {

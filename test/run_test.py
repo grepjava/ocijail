@@ -348,6 +348,14 @@ class test_run(unittest.TestCase):
                     args=[cmd, "exec", self.container_id],
                     capture_output=True)
                 self.assertNotEqual(ret.returncode, 0)
+
+                # Unknown options are still reported
+                ret = subprocess.run(
+                    args=[cmd, "exec", "--bogus", self.container_id,
+                          "sh", "-c", "exit 0"],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
+                self.assertIn(b"unknown option --bogus", ret.stderr)
             finally:
                 os.kill(pid, 9)
                 stdout.close()
