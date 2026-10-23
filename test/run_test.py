@@ -324,6 +324,36 @@ class test_run(unittest.TestCase):
             self.assertEqual(ret, 0)
             self.assertEqual(out, "Hello World\n")
 
+    def test_exec_args(self):
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        c["process"]["cwd"] = "/tmp"
+        c["process"]["env"].append("FOO=bar")
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            self.start()
+            try:
+                # Without --process, the container's process is used with
+                # the given command, which may have option-like arguments
+                ret = subprocess.run(
+                    args=[cmd, "exec", self.container_id,
+                          "sh", "-c", "echo $FOO; pwd"],
+                    capture_output=True)
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(ret.stdout.decode("utf-8"), "bar\n/tmp\n")
+
+                ret = subprocess.run(
+                    args=[cmd, "exec", self.container_id],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
+            finally:
+                os.kill(pid, 9)
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
+
     def test_tmpcopyup(self):
         # Running the container should copy the contents of /tmpdir to a
         # tmpfs which is mounted over it
