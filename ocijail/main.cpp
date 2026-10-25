@@ -117,6 +117,14 @@ json runtime_state::report() const {
         }
     }
     res["bundle"] = state_["bundle"];
+    res["rootfs"] = state_["root_path"];
+    // State saved by older versions has no created or owner.
+    if (state_.contains("created")) {
+        res["created"] = state_["created"];
+    }
+    if (state_.contains("owner")) {
+        res["owner"] = state_["owner"];
+    }
     if (state_["config"].contains("annotations")) {
         res["annotations"] = state_["config"]["annotations"];
     }
