@@ -382,6 +382,12 @@ class test_run(unittest.TestCase):
                     ret.stdout.decode("utf-8").split(),
                     ["baz", "qux", "/", "123", "456"])
                 ret = subprocess.run(
+                    args=[cmd, "exec", "--no-new-privs", self.container_id,
+                          "sh", "-c", "proccontrol -m nonewprivs -q -p $$; exit 0"],
+                    capture_output=True)
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(ret.stdout, b"enabled\n")
+                ret = subprocess.run(
                     args=[cmd, "exec", "-u", "nobody", self.container_id,
                           "true"],
                     capture_output=True)
