@@ -109,6 +109,38 @@ process::process(const json& process_json,
         }
     }
 
+    // These have no equivalent on FreeBSD, so they can only be accepted if
+    // they ask for nothing. Jail permissions take the place of capabilities.
+    if (process_json.contains("capabilities") &&
+        !process_json["capabilities"].is_null()) {
+        auto& caps = process_json["capabilities"];
+        if (!caps.is_object()) {
+            malformed_config("process.capabilities must be an object");
+        }
+        for (auto& [set, list] : caps.items()) {
+            if (!list.is_null() && !list.empty()) {
+                throw std::runtime_error(
+                    "process.capabilities are not supported");
+            }
+        }
+    }
+    for (auto key : {"apparmorProfile", "selinuxLabel"}) {
+        if (process_json.contains(key) && !process_json[key].is_null() &&
+            process_json[key] != "") {
+            throw std::runtime_error(std::string{"process."} + key +
+                                     " is not supported");
+        }
+    }
+    if (process_json.contains("oomScoreAdj") &&
+        !process_json["oomScoreAdj"].is_null() &&
+        process_json["oomScoreAdj"] != 0) {
+        throw std::runtime_error("process.oomScoreAdj is not supported");
+    }
+    if (process_json.contains("ioPriority") &&
+        !process_json["ioPriority"].is_null()) {
+        throw std::runtime_error("process.ioPriority is not supported");
+    }
+
     if (process_json.contains("terminal")) {
         if (!process_json["terminal"].is_boolean()) {
             malformed_config("process.terminal must be a boolean");

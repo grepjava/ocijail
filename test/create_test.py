@@ -70,6 +70,26 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.4.0"
         self.check_bad_config(c)
 
+    def test_process_linux_fields(self):
+        # Linux-specific process fields are accepted only if they ask for
+        # nothing.
+        c = self.config()
+        c["process"]["capabilities"] = {"bounding": [], "effective": []}
+        c["process"]["apparmorProfile"] = ""
+        c["process"]["selinuxLabel"] = ""
+        c["process"]["oomScoreAdj"] = 0
+        self.check_good_config(c)
+        for key, value in [
+            ("capabilities", {"bounding": ["CAP_CHOWN"]}),
+            ("apparmorProfile", "unconfined"),
+            ("selinuxLabel", "system_u:system_r:container_t:s0"),
+            ("oomScoreAdj", 100),
+            ("ioPriority", {"class": "IOPRIO_CLASS_IDLE", "priority": 0}),
+        ]:
+            c = self.config()
+            c["process"][key] = value
+            self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()
