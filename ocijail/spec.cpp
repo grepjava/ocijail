@@ -49,7 +49,7 @@ void spec::run() {
     }
 
     json config = {
-        {"ociVersion", "1.2.0"},
+        {"ociVersion", "1.3.0"},
         {"process",
          {
              {"terminal", true},
@@ -79,6 +79,16 @@ void spec::run() {
                  {"source", "fdesc"},
                  {"options", json::array()},
              },
+         }},
+        // The jail has its own hostname and shares the host's network.
+        {"freebsd",
+         {
+             {"jail",
+              {
+                  {"host", "new"},
+                  {"ip4", "inherit"},
+                  {"ip6", "inherit"},
+              }},
          }},
     };
 
