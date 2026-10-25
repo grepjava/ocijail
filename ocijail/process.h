@@ -45,6 +45,8 @@ struct process {
     gid_t gid_;
     std::optional<mode_t> umask_;
     bool terminal_{false};
+    // Rows and columns
+    std::optional<std::tuple<unsigned short, unsigned short>> console_size_;
 };
 
 }  // namespace ocijail

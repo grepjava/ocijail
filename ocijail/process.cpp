@@ -1,5 +1,6 @@
 #include <err.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <filesystem>
@@ -115,6 +116,19 @@ process::process(const json& process_json,
         }
         terminal_ = process_json["terminal"];
     }
+
+    if (process_json.contains("consoleSize")) {
+        auto& size = process_json["consoleSize"];
+        if (!size.is_object() || !size.contains("height") ||
+            !size.contains("width") || !size["height"].is_number_unsigned() ||
+            !size["width"].is_number_unsigned() ||
+            size["height"] > USHRT_MAX || size["width"] > USHRT_MAX) {
+            malformed_config(
+                "process.consoleSize must have a height and width which are "
+                "non-negative integers");
+        }
+        console_size_ = {size["height"], size["width"]};
+    }
     if (terminal_) {
         if (detach_) {
             if (!console_socket_) {
@@ -212,6 +226,14 @@ std::tuple<int, int, int> process::pre_start() {
     if (terminal_ && console_socket_) {
         auto [control_fd, tty_fd] = open_pty();
         stdin_fd = stdout_fd = stderr_fd = tty_fd;
+        if (console_size_) {
+            auto [rows, cols] = *console_size_;
+            struct winsize ws = {.ws_row = rows, .ws_col = cols};
+            if (::ioctl(tty_fd, TIOCSWINSZ, &ws) < 0) {
+                throw std::system_error{
+                    errno, std::system_category(), "TIOCSWINSZ"};
+            }
+        }
         send_pty_control_fd(*console_socket_, control_fd);
     } else {
         stdin_fd = 0;

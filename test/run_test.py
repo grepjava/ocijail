@@ -154,6 +154,15 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out, "Hello World\r\n")
 
+    def test_console_size(self):
+        c = self.config()
+        c["process"]["args"] = ["stty", "size"]
+        c["process"]["terminal"] = True
+        c["process"]["consoleSize"] = {"height": 42, "width": 123}
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "42 123\r\n")
+
     def test_chroot(self):
         with tempfile.TemporaryDirectory() as root_dir:
             shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
