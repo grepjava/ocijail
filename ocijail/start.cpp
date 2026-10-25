@@ -41,7 +41,6 @@ void start::run() {
     state.save();
 
     auto& config_hooks = state["config"]["hooks"];
-    hook::run_hooks(app_, config_hooks, "prestart", state);
 
     auto start_wait = state.get_state_dir() / "start_wait";
     auto fd = ::open(start_wait.c_str(), O_RDWR);

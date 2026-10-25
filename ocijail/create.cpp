@@ -484,6 +484,9 @@ void create::run() {
         state["pid"] = pid;
         state.save();
 
+        // As in crun, the deprecated prestart hooks run just before
+        // createRuntime, which is where the specification places them.
+        hook::run_hooks(app_, config_hooks, "prestart", state);
         hook::run_hooks(app_, config_hooks, "createRuntime", state);
 
         lk.unlock();

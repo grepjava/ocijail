@@ -227,6 +227,38 @@ class test_run(unittest.TestCase):
             ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 99)
 
+    def test_hook_prestart_in_create(self):
+        # prestart hooks run during create, before createRuntime
+        with tempfile.TemporaryDirectory() as scratch:
+            c = self.config()
+            c["process"]["args"] = ["sleep", "60"]
+            c["hooks"] = {
+                "prestart": [
+                    {
+                        "path": "/bin/sh",
+                        "args": ["-c", f"echo prestart >> {scratch}/file"]
+                    }
+                ],
+                "createRuntime": [
+                    {
+                        "path": "/bin/sh",
+                        "args": ["-c", f"echo createRuntime >> {scratch}/file"]
+                    }
+                ]
+            }
+            with tempfile.TemporaryDirectory() as bundle_dir:
+                with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                    json.dump(c, f)
+                pid, stdout, stderr = self.create(bundle_dir)
+                try:
+                    with open(f"{scratch}/file") as f:
+                        self.assertEqual(f.read(), "prestart\ncreateRuntime\n")
+                finally:
+                    os.kill(pid, 9)
+                    stdout.close()
+                    stderr.close()
+                    os.waitpid(pid, os.WEXITED)
+
     def test_hook_create_container(self):
         with tempfile.TemporaryDirectory() as root_dir:
             shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
