@@ -34,7 +34,7 @@ runtime refuses the request with a clear error and reports it accurately in
 | `create` `start` `state` `delete` `kill` `list` `exec` `features` | ✅ | ⚠️ correctness bugs | ✅ Phase 0 bugs fixed (PRs #26–#32) |
 | `run` | ✅ | ❌ | ✅ `run` |
 | `ps` | ✅ | ❌ | ✅ `ps` |
-| `spec` | ✅ | ❌ | ✅ `spec` |
+| `spec` | ✅ | ❌ | ✅ `spec`; `freebsd` section in `spec-freebsd` |
 | `state` fields `created` `owner` `rootfs` | ✅ | ❌ | ✅ `state-fields` |
 | Global `--debug` `--systemd-cgroup` `--cgroup-manager` `--rootless` | ✅ | ❌ | ✅ `global-flags` |
 | `exec` command as arguments | ✅ | ❌ (only `--process`) | ✅ `exec-argv` |
@@ -50,8 +50,9 @@ runtime refuses the request with a clear error and reports it accurately in
 | Stale state (jail gone, jid/pid reused) | ✅ | ⚠️ acts on unrelated jail/process | ✅ PR #37 |
 | `creating` status; cleanup after a failed `create` | ✅ | ⚠️ leaks mounts | ✅ PR #38 |
 | Exit status recording | ✅ (`run` only) | ❌ | ✅ via `run`; ➖ not stored in state (crun doesn't either) |
-| OCI 1.3 `freebsd.jail` | n/a | ❌ (uses `org.freebsd.*` annotations) | ✅ `freebsd-jail`, except `interface` and `vnetInterfaces` (⏳) |
-| `freebsd.devices` | n/a | ❌ | ⏳ |
+| OCI 1.3 `freebsd.jail` | n/a | ❌ (uses `org.freebsd.*` annotations) | ✅ `freebsd-jail`, `freebsd-interface`, `freebsd-vnet-interfaces` |
+| `domainname` | ✅ | ❌ ignored | ✅ `domainname` |
+| `freebsd.devices` | n/a | ❌ | ✅ `freebsd-devices` |
 | `process.rlimits` | ✅ | ❌ ignored | ✅ `process-rlimits` |
 | `process.noNewPrivileges` | ✅ | ❌ ignored | ✅ `no-new-privs` |
 | `process.consoleSize` | ✅ | ❌ ignored | ✅ `console-size` |
@@ -102,6 +103,11 @@ them and to dfr/ocijail#35.
 | 2 | `creating` status; clean up after a failed `create` | `failed-create-cleanup` (standalone); `creating-status` is the same change stacked on `stale-state` | PR #38 |
 | 2 | garbage jail error messages (bug found on the way) | `jail-errmsg` | pushed |
 | 3 | `freebsd.jail` (all fields except `interface`, `vnetInterfaces`) | `freebsd-jail` | pushed |
+| 3 | `freebsd.jail.interface` (aliases added/removed, pre-existing addresses left alone) | `freebsd-interface` (on `freebsd-jail`) | pushed |
+| 3 | `freebsd.jail.vnetInterfaces` | `freebsd-vnet-interfaces` (on `freebsd-interface`) | pushed |
+| 3 | `freebsd.devices` (devfs `unhide` rules on the container's `/dev`) | `freebsd-devices` | pushed |
+| 3 | `domainname` → `host.domainname` | `domainname` | pushed |
+| 3 | `freebsd.jail` section and `ociVersion` 1.3.0 in `spec` output | `spec-freebsd` (on `spec`) | pushed |
 | 4 | `rlimits` | `process-rlimits` | pushed |
 | 4 | `noNewPrivileges` | `no-new-privs` | pushed |
 | 4 | `consoleSize` | `console-size` | pushed |
@@ -113,9 +119,6 @@ them and to dfr/ocijail#35.
 - Phase 1: `exec --no-new-privs`, which needs `exec-flags` and
   `no-new-privs` together; `delete --force` for `paused`, which comes
   with Phase 5.
-- Phase 3: `freebsd.jail.interface`, `freebsd.jail.vnetInterfaces`,
-  `freebsd.devices`, a `freebsd.jail` section in `spec` output, and the
-  `domainname` field.
 - Phase 5: all of it. The test host has `kern.racct.enable=0`, so it
   needs `kern.racct.enable=1` in `/boot/loader.conf` and a reboot first.
 - Phase 0 infrastructure (CI, crun differential harness,
@@ -276,7 +279,7 @@ and a hook-ordering test asserts the exact sequence.
 
 ## Phase 3: OCI 1.3 FreeBSD config section
 
-**Status:** `freebsd.jail` is done except for `interface` and `vnetInterfaces`, which are rejected for now. Still to do: those two fields, `freebsd.devices`, `spec` output, and `domainname`.
+**Status:** done (`freebsd-jail`, `freebsd-interface`, `freebsd-vnet-interfaces`, `freebsd-devices`, `domainname`, `spec-freebsd`). There's no `freebsd` object in `features`, because the spec's features schema doesn't define one.
 
 *Goal: consume the standardised
 [`freebsd`](https://github.com/opencontainers/runtime-spec/blob/main/config-freebsd.md)
