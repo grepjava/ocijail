@@ -9,6 +9,11 @@ namespace ocijail {
 struct delete_ {
     static void init(main_app& app);
 
+    // Delete the container with the given id.
+    static void delete_container(main_app& app,
+                                 std::string_view id,
+                                 bool force);
+
    private:
     delete_(main_app& app);
     void run();
