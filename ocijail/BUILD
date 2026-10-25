@@ -27,6 +27,8 @@ cc_binary(
         "main.h",
         "mount.cpp",
         "mount.h",
+        "net.cpp",
+        "net.h",
         "process.cpp",
         "process.h",
         "start.cpp",
