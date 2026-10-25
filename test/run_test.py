@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 cmd = "ocijail/ocijail"
@@ -187,6 +188,94 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
+
+    def run_command(self, bundle_dir, *args, **kwargs):
+        return subprocess.run(
+            args=[cmd, "run", "--bundle", bundle_dir, *args,
+                  self.container_id],
+            capture_output=True, **kwargs)
+
+    def container_state(self):
+        ret = subprocess.run(
+            args=[cmd, "state", self.container_id], capture_output=True)
+        if ret.returncode != 0:
+            return None
+        return json.loads(ret.stdout)
+
+    def test_run(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "echo Hello World; exit 42"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+
+            # run waits for the container, returns its exit status and
+            # deletes it
+            ret = self.run_command(bundle_dir)
+            self.assertEqual(ret.returncode, 42, ret.stderr)
+            self.assertEqual(ret.stdout, b"Hello World\n")
+            self.assertIsNone(self.container_state())
+
+            # With --keep, the stopped container is left behind
+            ret = self.run_command(bundle_dir, "--keep")
+            self.assertEqual(ret.returncode, 42, ret.stderr)
+            self.assertEqual(self.container_state()["status"], "stopped")
+            self.delete()
+
+    def test_run_signal(self):
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+
+            # Signals sent to run are forwarded to the container, and a
+            # container killed by a signal exits with 128 + the signal
+            with subprocess.Popen(
+                args=[cmd, "run", "--bundle", bundle_dir, self.container_id],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ) as proc:
+                for _ in range(100):
+                    state = self.container_state()
+                    if state and state["status"] == "running":
+                        break
+                    time.sleep(0.1)
+                self.assertEqual(state["status"], "running")
+                proc.send_signal(15)
+                self.assertEqual(proc.wait(timeout=10), 128 + 15)
+            self.assertIsNone(self.container_state())
+
+    def test_run_detach(self):
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid_file = os.path.join(bundle_dir, "pid")
+            # The container keeps run's stdout and stderr open, so don't
+            # wait for them to close.
+            with tempfile.TemporaryFile() as err:
+                ret = subprocess.run(
+                    args=[cmd, "run", "--bundle", bundle_dir, "--detach",
+                          "--pid-file", pid_file, self.container_id],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=err)
+                err.seek(0)
+                self.assertEqual(ret.returncode, 0, err.read())
+            with open(pid_file) as f:
+                pid = int(f.read())
+            state = self.container_state()
+            self.assertEqual(state["status"], "running")
+            self.assertEqual(state["pid"], pid)
+            os.kill(pid, 9)
+            try:
+                # Reap the container, which may be our child via the
+                # subreaper
+                os.waitpid(pid, 0)
+            except ChildProcessError:
+                pass
+            ret = subprocess.run(args=[cmd, "delete", "--force", self.container_id])
+            self.assertEqual(ret.returncode, 0)
 
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
