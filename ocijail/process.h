@@ -45,6 +45,7 @@ struct process {
     gid_t gid_;
     std::optional<mode_t> umask_;
     bool terminal_{false};
+    bool no_new_privileges_{false};
 };
 
 }  // namespace ocijail

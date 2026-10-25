@@ -1,5 +1,6 @@
 #include <err.h>
 #include <signal.h>
+#include <sys/procctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <filesystem>
@@ -114,6 +115,13 @@ process::process(const json& process_json,
             malformed_config("process.terminal must be a boolean");
         }
         terminal_ = process_json["terminal"];
+    }
+
+    if (process_json.contains("noNewPrivileges")) {
+        if (!process_json["noNewPrivileges"].is_boolean()) {
+            malformed_config("process.noNewPrivileges must be a boolean");
+        }
+        no_new_privileges_ = process_json["noNewPrivileges"];
     }
     if (terminal_) {
         if (detach_) {
@@ -312,6 +320,16 @@ void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
         ::dup2(stderr_fd, 2);
     }
     ::close_range(3 + preserve_fds_, INT_MAX, CLOSE_RANGE_CLOEXEC);
+
+    // Stop setuid and setgid executables from gaining privileges if
+    // requested.
+    if (no_new_privileges_) {
+        int arg = PROC_NO_NEW_PRIVS_ENABLE;
+        if (::procctl(P_PID, 0, PROC_NO_NEW_PRIVS_CTL, &arg) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error calling procctl"};
+        }
+    }
 
     // exec the requested command.
     ::execvp(argv[0], &argv[0]);
