@@ -12,6 +12,7 @@
 #include "ocijail/kill.h"
 #include "ocijail/list.h"
 #include "ocijail/main.h"
+#include "ocijail/spec.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
 
@@ -31,6 +32,7 @@ int main(int argc, char** argv) {
     state::init(app);
     list::init(app);
     features::init(app);
+    spec::init(app);
 
     try {
         app.parse(argc, argv);
