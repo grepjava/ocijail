@@ -391,8 +391,19 @@ void create::run() {
             jconf.set("ip6", jail::INHERIT);
         }
     }
-    if (config.contains("hostname")) {
-        jconf.set("host.hostname", config["hostname"].get<std::string>());
+    for (auto key : {"hostname", "domainname"}) {
+        if (config.contains(key) && !config[key].is_string()) {
+            malformed_config(std::string{key} + " must be a string");
+        }
+    }
+    if (config.contains("hostname") || config.contains("domainname")) {
+        if (config.contains("hostname")) {
+            jconf.set("host.hostname", config["hostname"].get<std::string>());
+        }
+        if (config.contains("domainname")) {
+            jconf.set("host.domainname",
+                      config["domainname"].get<std::string>());
+        }
         jconf.set("host", jail::NEW);
     } else {
         jconf.set("host", jail::INHERIT);
