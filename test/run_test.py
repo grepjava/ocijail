@@ -188,6 +188,105 @@ class test_run(unittest.TestCase):
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
 
+    def jail_params(self, c, *params):
+        "Create a container with config c and return its jail parameters"
+        c["process"]["args"] = ["sleep", "60"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            try:
+                out = subprocess.run(
+                    args=["jls", "-j", self.container_id, "-n", *params],
+                    capture_output=True, check=True).stdout.decode("utf-8")
+            finally:
+                os.kill(pid, 9)
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
+                self.delete()
+        res = {}
+        for param in out.split():
+            if "=" in param:
+                key, value = param.split("=", 1)
+                res[key] = value
+            elif ".no" in param:
+                res[param.replace(".no", ".", 1)] = False
+            else:
+                res[param] = True
+        return res
+
+    def test_freebsd_jail(self):
+        allow = ["allow.raw_sockets", "allow.chflags", "allow.set_hostname",
+                 "allow.suser", "allow.mlock", "allow.mount",
+                 "allow.mount.tmpfs"]
+
+        # Without a freebsd section, the defaults are as before
+        p = self.jail_params(self.config(), "enforce_statfs", *allow)
+        self.assertEqual(p["enforce_statfs"], "1")
+        self.assertTrue(p["allow.raw_sockets"])
+        self.assertTrue(p["allow.chflags"])
+
+        # With one, they are those of the specification
+        c = self.config()
+        c["freebsd"] = {"jail": {}}
+        p = self.jail_params(c, "enforce_statfs", "host", *allow)
+        self.assertEqual(p["enforce_statfs"], "2")
+        self.assertEqual(p["host"], "inherit")
+        for param in allow:
+            self.assertEqual(p[param], param == "allow.suser", param)
+
+        # Explicit settings
+        c = self.config()
+        c["hostname"] = "myhost"
+        c["freebsd"] = {"jail": {
+            "host": "new",
+            "sysvshm": "new",
+            "enforceStatfs": 1,
+            "allow": {
+                "rawSockets": True,
+                "setHostname": True,
+                "suser": False,
+                "mount": ["tmpfs"],
+            },
+        }}
+        p = self.jail_params(c, "enforce_statfs", "host", "host.hostname",
+                             "sysvshm", *allow)
+        self.assertEqual(p["enforce_statfs"], "1")
+        self.assertEqual(p["host"], "new")
+        self.assertEqual(p["host.hostname"], "myhost")
+        self.assertEqual(p["sysvshm"], "new")
+        self.assertTrue(p["allow.raw_sockets"])
+        self.assertTrue(p["allow.set_hostname"])
+        self.assertFalse(p["allow.suser"])
+        self.assertTrue(p["allow.mount"])
+        self.assertTrue(p["allow.mount.tmpfs"])
+        self.assertFalse(p["allow.chflags"])
+
+        # The freebsd section takes precedence over annotations, which still
+        # apply where it says nothing
+        c = self.config()
+        c["annotations"] = {
+            "org.freebsd.jail.allow.raw_sockets": "true",
+            "org.freebsd.jail.allow.mlock": "true",
+            "org.freebsd.jail.sysvshm": "disable",
+        }
+        c["freebsd"] = {"jail": {
+            "sysvshm": "new",
+            "allow": {"rawSockets": False},
+        }}
+        p = self.jail_params(c, "sysvshm", *allow)
+        self.assertEqual(p["sysvshm"], "new")
+        self.assertFalse(p["allow.raw_sockets"])
+        self.assertTrue(p["allow.mlock"])
+
+        # Addresses
+        c = self.config()
+        c["freebsd"] = {"jail": {"ip4Addr": ["127.0.0.1"], "ip6": "disable"}}
+        p = self.jail_params(c, "ip4.addr", "ip6")
+        self.assertEqual(p["ip4.addr"], "127.0.0.1")
+        self.assertEqual(p["ip6"], "disable")
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

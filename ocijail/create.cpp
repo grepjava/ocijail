@@ -211,16 +211,20 @@ void create::run() {
         hook::validate_hooks(app_, config_hooks, "poststop");
     }
 
-    // Default to setting allow.chflags but disable if we have a
-    // parent jail where this is not set.
-    bool allow_chflags = true;
-
-    // Get the parent jail name and requested vnet type (if any)
+    // Jail parameters come from the freebsd section of the config, or from
+    // annotations for versions of podman which predate it. Where both are
+    // present, the freebsd section takes precedence.
     std::optional<std::string> parent_jail;
     auto vnet = jail::INHERIT;
+    std::optional<jail::ns> host;
+    std::optional<jail::ns> ip4;
+    std::optional<jail::ns> ip6;
     std::optional<std::string> ip4_addr;
     std::optional<std::string> ip6_addr;
-    std::vector<std::string> allow_params;
+    uint32_t enforce_statfs = 1;
+    // Boolean jail parameters such as allow.mlock
+    std::map<std::string, bool> allow_params;
+    std::vector<std::string> annotation_allow_params;
 
     std::unordered_map<std::string, std::optional<jail::ns>> known_ns_params = {
         {"org.freebsd.jail.vnet", std::nullopt},
@@ -232,8 +236,6 @@ void create::run() {
         auto config_annotations = config["annotations"];
         if (config_annotations.contains("org.freebsd.parentJail")) {
             parent_jail = config_annotations["org.freebsd.parentJail"];
-            auto pj = jail::find(*parent_jail);
-            allow_chflags = pj.get<bool>("allow.chflags");
         }
 
         for (auto& [key, nsvalue] : known_ns_params) {
@@ -295,10 +297,181 @@ void create::run() {
                     app_.log() << "warning: unknown jail allow annotation '"
                                << key << "', ignoring";
                 } else if (val == "true" || val == "1") {
-                    allow_params.push_back(param);
+                    annotation_allow_params.push_back(param);
                 }
             }
         }
+    }
+    auto sysvmsg = known_ns_params["org.freebsd.jail.sysvmsg"];
+    auto sysvsem = known_ns_params["org.freebsd.jail.sysvsem"];
+    auto sysvshm = known_ns_params["org.freebsd.jail.sysvshm"];
+
+    // The allow parameters which the freebsd section can set
+    static const std::map<std::string, std::string> freebsd_allow_params = {
+        {"setHostname", "allow.set_hostname"},
+        {"rawSockets", "allow.raw_sockets"},
+        {"chflags", "allow.chflags"},
+        {"quotas", "allow.quotas"},
+        {"socketAf", "allow.socket_af"},
+        {"mlock", "allow.mlock"},
+        {"reservedPorts", "allow.reserved_ports"},
+        {"suser", "allow.suser"},
+    };
+    std::map<std::string, bool> freebsd_allow;
+    bool have_freebsd_jail =
+        config.contains("freebsd") && config["freebsd"].is_object() &&
+        config["freebsd"].contains("jail");
+    if (have_freebsd_jail) {
+        auto& fj = config["freebsd"]["jail"];
+        if (!fj.is_object()) {
+            malformed_config("freebsd.jail must be an object");
+        }
+        auto mode = [&](const char* key,
+                        bool can_disable) -> std::optional<jail::ns> {
+            if (!fj.contains(key)) {
+                return std::nullopt;
+            }
+            if (fj[key] == "new") {
+                return jail::NEW;
+            } else if (fj[key] == "inherit") {
+                return jail::INHERIT;
+            } else if (can_disable && fj[key] == "disable") {
+                return jail::DISABLED;
+            }
+            malformed_config(std::string{"bad value for freebsd.jail."} + key);
+            return std::nullopt;
+        };
+        auto addrs = [&](const char* key) -> std::optional<std::string> {
+            if (!fj.contains(key)) {
+                return std::nullopt;
+            }
+            if (!fj[key].is_array()) {
+                malformed_config(std::string{"freebsd.jail."} + key +
+                                 " must be an array of strings");
+            }
+            std::string res;
+            for (auto& addr : fj[key]) {
+                if (!addr.is_string()) {
+                    malformed_config(std::string{"freebsd.jail."} + key +
+                                     " must be an array of strings");
+                }
+                if (!res.empty()) {
+                    res += ",";
+                }
+                res += addr.get<std::string>();
+            }
+            return res;
+        };
+
+        if (fj.contains("parent")) {
+            if (!fj["parent"].is_string()) {
+                malformed_config("freebsd.jail.parent must be a string");
+            }
+            parent_jail = fj["parent"];
+        }
+        if (auto v = mode("host", false)) {
+            host = v;
+        }
+        if (auto v = mode("vnet", false)) {
+            vnet = *v;
+        }
+        if (auto v = mode("ip4", true)) {
+            ip4 = v;
+        }
+        if (auto v = mode("ip6", true)) {
+            ip6 = v;
+        }
+        if (auto v = addrs("ip4Addr")) {
+            ip4_addr = v;
+        }
+        if (auto v = addrs("ip6Addr")) {
+            ip6_addr = v;
+        }
+        if (auto v = mode("sysvmsg", true)) {
+            sysvmsg = v;
+        }
+        if (auto v = mode("sysvsem", true)) {
+            sysvsem = v;
+        }
+        if (auto v = mode("sysvshm", true)) {
+            sysvshm = v;
+        }
+        enforce_statfs = 2;
+        if (fj.contains("enforceStatfs")) {
+            if (!fj["enforceStatfs"].is_number_unsigned() ||
+                fj["enforceStatfs"] > 2) {
+                malformed_config("freebsd.jail.enforceStatfs must be 0, 1 or 2");
+            }
+            enforce_statfs = fj["enforceStatfs"];
+        }
+        for (auto key : {"interface", "vnetInterfaces"}) {
+            if (fj.contains(key)) {
+                throw std::runtime_error(std::string{"freebsd.jail."} + key +
+                                         " is not supported");
+            }
+        }
+        if (fj.contains("allow")) {
+            auto& allow = fj["allow"];
+            if (!allow.is_object()) {
+                malformed_config("freebsd.jail.allow must be an object");
+            }
+            for (auto& [key, value] : allow.items()) {
+                if (key == "mount") {
+                    if (!value.is_array()) {
+                        malformed_config(
+                            "freebsd.jail.allow.mount must be an array of "
+                            "strings");
+                    }
+                    for (auto& fstype : value) {
+                        if (!fstype.is_string()) {
+                            malformed_config(
+                                "freebsd.jail.allow.mount must be an array of "
+                                "strings");
+                        }
+                        freebsd_allow["allow.mount"] = true;
+                        freebsd_allow["allow.mount." +
+                                      fstype.get<std::string>()] = true;
+                    }
+                    continue;
+                }
+                auto it = freebsd_allow_params.find(key);
+                if (it == freebsd_allow_params.end()) {
+                    malformed_config("unknown freebsd.jail.allow." + key);
+                }
+                if (!value.is_boolean()) {
+                    malformed_config("freebsd.jail.allow." + key +
+                                     " must be a boolean");
+                }
+                freebsd_allow[it->second] = value;
+            }
+        }
+    }
+
+    // Start with the defaults, which for the freebsd section are those of
+    // the specification, then apply the allow annotations and finally the
+    // freebsd section.
+    if (have_freebsd_jail) {
+        for (auto& [key, param] : freebsd_allow_params) {
+            allow_params[param] = (key == "suser");
+        }
+    } else {
+        allow_params["allow.raw_sockets"] = true;
+        // Set allow.chflags unless we have a parent jail where this is not
+        // set.
+        bool allow_chflags = true;
+        if (parent_jail) {
+            auto pj = jail::find(*parent_jail);
+            allow_chflags = pj.get<bool>("allow.chflags");
+        }
+        if (allow_chflags) {
+            allow_params["allow.chflags"] = true;
+        }
+    }
+    for (auto& param : annotation_allow_params) {
+        allow_params[param] = true;
+    }
+    for (auto& [param, value] : freebsd_allow) {
+        allow_params[param] = value;
     }
 
     // Create a jail config from the OCI config
@@ -309,22 +482,25 @@ void create::run() {
         jconf.set("name", id_);
     }
     jconf.set("persist");
-    jconf.set("enforce_statfs", 1u);
-    jconf.set("allow.raw_sockets");
-    if (allow_chflags) {
-        jconf.set("allow.chflags");
+    jconf.set("enforce_statfs", enforce_statfs);
+    for (const auto& [param, value] : allow_params) {
+        if (value) {
+            jconf.set(param);
+        } else {
+            // Turn off a boolean parameter by adding "no" to its last part,
+            // e.g. allow.noraw_sockets.
+            auto i = param.rfind('.') + 1;
+            jconf.set(param.substr(0, i) + "no" + param.substr(i));
+        }
     }
-    if (known_ns_params["org.freebsd.jail.sysvmsg"]) {
-        jconf.set("sysvmsg", *known_ns_params["org.freebsd.jail.sysvmsg"]);
+    if (sysvmsg) {
+        jconf.set("sysvmsg", *sysvmsg);
     }
-    if (known_ns_params["org.freebsd.jail.sysvsem"]) {
-        jconf.set("sysvsem", *known_ns_params["org.freebsd.jail.sysvsem"]);
+    if (sysvsem) {
+        jconf.set("sysvsem", *sysvsem);
     }
-    if (known_ns_params["org.freebsd.jail.sysvshm"]) {
-        jconf.set("sysvshm", *known_ns_params["org.freebsd.jail.sysvshm"]);
-    }
-    for (const auto& param : allow_params) {
-        jconf.set(param);
+    if (sysvshm) {
+        jconf.set("sysvshm", *sysvshm);
     }
     if (root_readonly) {
         jconf.set("path", readonly_root_path);
@@ -332,71 +508,71 @@ void create::run() {
         jconf.set("path", root_path);
     }
     if (vnet == jail::NEW) {
+        // A vnet jail has its own addresses.
+        if (ip4 || ip6 || ip4_addr || ip6_addr) {
+            throw std::runtime_error(
+                "IP address restrictions cannot be used with a new vnet");
+        }
         jconf.set("vnet", vnet);
     } else {
-        if (ip4_addr) {
-            std::vector<uint8_t> addrs;
+        auto parse_addrs = [](const std::string& addrs, int af,
+                              const char* name) {
+            std::vector<uint8_t> res;
             std::string::size_type start = 0;
-            while (start < ip4_addr->size()) {
-                auto end = ip4_addr->find(',', start);
-                auto token = ip4_addr->substr(
+            while (start < addrs.size()) {
+                auto end = addrs.find(',', start);
+                auto token = addrs.substr(
                     start, end == std::string::npos ? std::string::npos
                                                     : end - start);
                 if (!token.empty()) {
-                    in_addr addr{};
-                    if (inet_pton(AF_INET, token.c_str(), &addr) != 1) {
-                        throw std::runtime_error(
-                            "bad value for org.freebsd.jail.ip4.addr: " +
-                            token);
+                    std::array<uint8_t, sizeof(in6_addr)> addr;
+                    if (inet_pton(af, token.c_str(), addr.data()) != 1) {
+                        throw std::runtime_error(std::string{"bad "} + name +
+                                                 " address: " + token);
                     }
-                    auto* p = reinterpret_cast<uint8_t*>(&addr);
-                    addrs.insert(addrs.end(), p, p + sizeof(addr));
+                    auto len = af == AF_INET ? sizeof(in_addr)
+                                             : sizeof(in6_addr);
+                    res.insert(res.end(), addr.begin(), addr.begin() + len);
                 }
                 if (end == std::string::npos) {
                     break;
                 }
                 start = end + 1;
             }
-            jconf.set("ip4", jail::INHERIT);
-            jconf.set("ip4.addr", addrs);
+            return res;
+        };
+        if (ip4_addr) {
+            if (ip4 && *ip4 != jail::NEW) {
+                throw std::runtime_error(
+                    "IPv4 addresses can only be given if ip4 is new");
+            }
+            jconf.set("ip4", jail::NEW);
+            jconf.set("ip4.addr", parse_addrs(*ip4_addr, AF_INET, "IPv4"));
         } else {
-            jconf.set("ip4", jail::INHERIT);
+            jconf.set("ip4", ip4.value_or(jail::INHERIT));
         }
         if (ip6_addr) {
-            std::vector<uint8_t> addrs;
-            std::string::size_type start = 0;
-            while (start < ip6_addr->size()) {
-                auto end = ip6_addr->find(',', start);
-                auto token = ip6_addr->substr(
-                    start, end == std::string::npos ? std::string::npos
-                                                    : end - start);
-                if (!token.empty()) {
-                    in6_addr addr{};
-                    if (inet_pton(AF_INET6, token.c_str(), &addr) != 1) {
-                        throw std::runtime_error(
-                            "bad value for org.freebsd.jail.ip6.addr: " +
-                            token);
-                    }
-                    auto* p = reinterpret_cast<uint8_t*>(&addr);
-                    addrs.insert(addrs.end(), p, p + sizeof(addr));
-                }
-                if (end == std::string::npos) {
-                    break;
-                }
-                start = end + 1;
+            if (ip6 && *ip6 != jail::NEW) {
+                throw std::runtime_error(
+                    "IPv6 addresses can only be given if ip6 is new");
             }
-            jconf.set("ip6", jail::INHERIT);
-            jconf.set("ip6.addr", addrs);
+            jconf.set("ip6", jail::NEW);
+            jconf.set("ip6.addr", parse_addrs(*ip6_addr, AF_INET6, "IPv6"));
         } else {
-            jconf.set("ip6", jail::INHERIT);
+            jconf.set("ip6", ip6.value_or(jail::INHERIT));
         }
     }
-    if (config.contains("hostname")) {
-        jconf.set("host.hostname", config["hostname"].get<std::string>());
-        jconf.set("host", jail::NEW);
-    } else {
-        jconf.set("host", jail::INHERIT);
+    if (!host) {
+        host = config.contains("hostname") ? jail::NEW : jail::INHERIT;
     }
+    if (config.contains("hostname")) {
+        if (*host != jail::NEW) {
+            throw std::runtime_error(
+                "hostname can only be set if freebsd.jail.host is new");
+        }
+        jconf.set("host.hostname", config["hostname"].get<std::string>());
+    }
+    jconf.set("host", *host);
 
     // Unit tests for config validation stop here.
     if (app_.get_test_mode() == test_mode::VALIDATION) {
