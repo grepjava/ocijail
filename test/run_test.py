@@ -154,6 +154,30 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out, "Hello World\r\n")
 
+    def test_scheduler(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "rtprio 2>&1"]
+        c["process"]["scheduler"] = {"policy": "SCHED_FIFO", "priority": 10}
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        # rtprio reports on stderr. POSIX priorities count up, rtprio
+        # priorities down.
+        self.assertEqual(out, "rtprio: realtime priority 21\n")
+        self.delete()
+
+        c["process"]["args"] = ["sh", "-c", "idprio 2>&1"]
+        c["process"]["scheduler"] = {"policy": "SCHED_IDLE"}
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "idprio: idle priority 31\n")
+        self.delete()
+
+        c["process"]["args"] = ["sh", "-c", "ps -o nice= -p $$; exit 0"]
+        c["process"]["scheduler"] = {"policy": "SCHED_OTHER", "nice": 7}
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out.strip(), "7")
+
     def test_chroot(self):
         with tempfile.TemporaryDirectory() as root_dir:
             shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))

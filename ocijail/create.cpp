@@ -564,6 +564,7 @@ void create::run() {
             hook::run_hooks(app_, config_hooks, "createContainer", state);
 
             // Enter the jail and set the requested working directory.
+            proc.set_scheduler();
             j.attach();
 
             // Validate the process executable exists and can be executed

@@ -1,5 +1,8 @@
 #include <err.h>
 #include <signal.h>
+#include <sched.h>
+#include <sys/resource.h>
+#include <sys/rtprio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <filesystem>
@@ -107,6 +110,69 @@ process::process(const json& process_json,
             }
             env_.push_back(arg.get<std::string>());
         }
+    }
+
+    if (process_json.contains("scheduler")) {
+        auto& sched = process_json["scheduler"];
+        if (!sched.is_object() || !sched.contains("policy") ||
+            !sched["policy"].is_string()) {
+            malformed_config(
+                "process.scheduler must be an object with a policy");
+        }
+        auto number = [&](const char* key) -> int64_t {
+            if (!sched.contains(key)) {
+                return 0;
+            }
+            if (!sched[key].is_number_integer()) {
+                malformed_config(std::string{"process.scheduler."} + key +
+                                 " must be an integer");
+            }
+            return sched[key];
+        };
+        // Linux's SCHED_DEADLINE parameters and flags have no equivalent.
+        for (auto key : {"runtime", "deadline", "period"}) {
+            if (number(key) != 0) {
+                throw std::runtime_error(std::string{"process.scheduler."} +
+                                         key + " is not supported");
+            }
+        }
+        if (sched.contains("flags") && !sched["flags"].empty()) {
+            throw std::runtime_error(
+                "process.scheduler.flags are not supported");
+        }
+
+        auto policy = sched["policy"].get<std::string>();
+        auto priority = number("priority");
+        auto nice = number("nice");
+        if (nice < PRIO_MIN || nice > PRIO_MAX) {
+            throw std::runtime_error("process.scheduler.nice out of range");
+        }
+        int p;
+        if (policy == "SCHED_OTHER") {
+            p = SCHED_OTHER;
+        } else if (policy == "SCHED_FIFO") {
+            p = SCHED_FIFO;
+        } else if (policy == "SCHED_RR") {
+            p = SCHED_RR;
+        } else if (policy == "SCHED_IDLE") {
+            p = SCHED_IDLE;
+        } else {
+            throw std::runtime_error("unsupported scheduler policy " + policy);
+        }
+        if (p == SCHED_FIFO || p == SCHED_RR) {
+            if (priority < ::sched_get_priority_min(p) ||
+                priority > ::sched_get_priority_max(p)) {
+                std::stringstream ss;
+                ss << "process.scheduler.priority must be between "
+                   << ::sched_get_priority_min(p) << " and "
+                   << ::sched_get_priority_max(p) << " for " << policy;
+                throw std::runtime_error(ss.str());
+            }
+        } else if (priority != 0) {
+            throw std::runtime_error(
+                "process.scheduler.priority must be 0 for " + policy);
+        }
+        scheduler_ = scheduler{p, int(priority), int(nice)};
     }
 
     if (process_json.contains("terminal")) {
@@ -226,6 +292,33 @@ std::tuple<int, int, int> process::pre_start() {
         }
     }
     return {stdin_fd, stdout_fd, stderr_fd};
+}
+
+void process::set_scheduler() {
+    if (!scheduler_) {
+        return;
+    }
+    if (scheduler_->policy == SCHED_IDLE) {
+        // Linux's SCHED_IDLE has no priorities, so use the lowest.
+        struct rtprio rtp = {.type = RTP_PRIO_IDLE, .prio = RTP_PRIO_MAX};
+        if (::rtprio(RTP_SET, 0, &rtp) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error calling rtprio"};
+        }
+    } else if (scheduler_->policy != SCHED_OTHER) {
+        struct sched_param param = {.sched_priority = scheduler_->priority};
+        if (::sched_setscheduler(0, scheduler_->policy, &param) < 0) {
+            throw std::system_error{errno,
+                                    std::system_category(),
+                                    "error calling sched_setscheduler"};
+        }
+    }
+    if (scheduler_->nice != 0) {
+        if (::setpriority(PRIO_PROCESS, 0, scheduler_->nice) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error calling setpriority"};
+        }
+    }
 }
 
 void process::reset_signals() {

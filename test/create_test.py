@@ -70,6 +70,29 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.4.0"
         self.check_bad_config(c)
 
+    def test_process_scheduler(self):
+        c = self.config()
+        for sched in [
+            {"policy": "SCHED_OTHER"},
+            {"policy": "SCHED_OTHER", "nice": -5},
+            {"policy": "SCHED_FIFO", "priority": 31},
+            {"policy": "SCHED_RR", "priority": 0},
+            {"policy": "SCHED_IDLE"},
+        ]:
+            c["process"]["scheduler"] = sched
+            self.check_good_config(c)
+        for sched in [
+            {},
+            {"policy": "SCHED_BATCH"},
+            {"policy": "SCHED_DEADLINE", "runtime": 1000},
+            {"policy": "SCHED_FIFO", "priority": 50},
+            {"policy": "SCHED_OTHER", "priority": 1},
+            {"policy": "SCHED_OTHER", "nice": 100},
+            {"policy": "SCHED_OTHER", "flags": ["SCHED_FLAG_RESET_ON_FORK"]},
+        ]:
+            c["process"]["scheduler"] = sched
+            self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()
