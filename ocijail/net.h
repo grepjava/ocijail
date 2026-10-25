@@ -31,4 +31,14 @@ void add_interface_aliases(
 // Remove the aliases recorded by add_interface_aliases, logging any errors.
 void remove_interface_aliases(main_app& app, runtime_state& state);
 
+// Move the interfaces into the vnet of the jail, recording them in the
+// state so that they can be returned.
+void move_interfaces_to_vnet(runtime_state& state,
+                             int jid,
+                             const std::vector<std::string>& interfaces);
+
+// Return the interfaces recorded by move_interfaces_to_vnet to the host,
+// logging any errors.
+void return_interfaces_from_vnet(main_app& app, runtime_state& state);
+
 }  // namespace ocijail

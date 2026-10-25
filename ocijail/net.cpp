@@ -120,4 +120,27 @@ void remove_interface_aliases(main_app& app, runtime_state& state) {
     }
 }
 
+void move_interfaces_to_vnet(runtime_state& state,
+                             int jid,
+                             const std::vector<std::string>& interfaces) {
+    for (auto& interface : interfaces) {
+        ifconfig({interface, "vnet", std::to_string(jid)});
+        state["vnet_interfaces"].push_back(interface);
+        state.save();
+    }
+}
+
+void return_interfaces_from_vnet(main_app& app, runtime_state& state) {
+    if (!state.contains("vnet_interfaces")) {
+        return;
+    }
+    for (auto& interface : state["vnet_interfaces"]) {
+        try {
+            ifconfig({interface, "-vnet", std::to_string(int(state["jid"]))});
+        } catch (const std::exception& e) {
+            app.log() << "warning: " << e.what();
+        }
+    }
+}
+
 }  // namespace ocijail

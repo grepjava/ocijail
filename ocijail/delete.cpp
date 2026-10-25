@@ -71,6 +71,7 @@ void delete_::run() {
     }
 
     auto j = jail::find(int(state["jid"]));
+    return_interfaces_from_vnet(app_, state);
     j.remove();
     remove_interface_aliases(app_, state);
 

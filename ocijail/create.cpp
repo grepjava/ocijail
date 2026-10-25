@@ -226,6 +226,8 @@ void create::run() {
     uint32_t enforce_statfs = 1;
     // An interface to add the container's addresses to
     std::optional<std::string> interface;
+    // Interfaces to move into the container's vnet
+    std::vector<std::string> vnet_interfaces;
     // Boolean jail parameters such as allow.mlock
     std::map<std::string, bool> allow_params;
     std::vector<std::string> annotation_allow_params;
@@ -418,8 +420,23 @@ void create::run() {
             }
         }
         if (fj.contains("vnetInterfaces")) {
-            throw std::runtime_error(
-                "freebsd.jail.vnetInterfaces is not supported");
+            auto& ifs = fj["vnetInterfaces"];
+            if (!ifs.is_array()) {
+                malformed_config(
+                    "freebsd.jail.vnetInterfaces must be an array of strings");
+            }
+            for (auto& name : ifs) {
+                if (!name.is_string()) {
+                    malformed_config(
+                        "freebsd.jail.vnetInterfaces must be an array of "
+                        "strings");
+                }
+                if (::if_nametoindex(name.get<std::string>().c_str()) == 0) {
+                    throw std::runtime_error("no such interface " +
+                                             name.get<std::string>());
+                }
+                vnet_interfaces.push_back(name);
+            }
         }
         if (fj.contains("allow")) {
             auto& allow = fj["allow"];
@@ -525,6 +542,9 @@ void create::run() {
                 "IP address restrictions cannot be used with a new vnet");
         }
         jconf.set("vnet", vnet);
+    } else if (!vnet_interfaces.empty()) {
+        throw std::runtime_error(
+            "freebsd.jail.vnetInterfaces needs a new vnet");
     } else {
         auto parse_addrs = [](const std::string& addrs, int af,
                               const char* name) {
@@ -682,6 +702,15 @@ void create::run() {
             throw;
         }
     }();
+    state["jid"] = j.jid();
+    try {
+        move_interfaces_to_vnet(state, j.jid(), vnet_interfaces);
+    } catch (const std::exception&) {
+        return_interfaces_from_vnet(app_, state);
+        j.remove();
+        remove_interface_aliases(app_, state);
+        throw;
+    }
 
     // We record the container state including the bundle config. We
     // need to create the start fifo before forking - this will be
@@ -726,6 +755,7 @@ void create::run() {
         if (status != 0) {
             // If the create failed, we need to clean up: unmount the volumes and
             // delete the state.
+            return_interfaces_from_vnet(app_, state);
             j.remove();
             remove_interface_aliases(app_, state);
             if (config_mounts.is_array()) {

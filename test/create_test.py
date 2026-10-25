@@ -102,7 +102,9 @@ class test_create(unittest.TestCase):
             {"allow": {"mount": "tmpfs"}},
             {"interface": "nosuchif0"},
             {"interface": "lo0", "vnet": "new"},
-            {"vnetInterfaces": ["em1"]},
+            {"vnet": "new", "vnetInterfaces": ["nosuchif0"]},
+            {"vnetInterfaces": ["lo0"]},
+            {"vnet": "new", "vnetInterfaces": "lo0"},
         ]:
             c["freebsd"] = {"jail": jail}
             self.check_bad_config(c)
