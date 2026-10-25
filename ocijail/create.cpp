@@ -474,6 +474,15 @@ void create::run() {
             errno, std::system_category(), "error creating start fifo"};
     }
 
+    // The container process holds this fifo open until it executes the
+    // container command, and writes to it if that fails, so that start can
+    // tell whether it succeeded.
+    auto exec_wait = state.get_state_dir() / "exec_wait";
+    if (mkfifo(exec_wait.c_str(), 0600) < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "error creating exec fifo"};
+    }
+
     auto pid = ::fork();
     if (pid) {
         // Parent process - write to pid file if requested
@@ -530,6 +539,11 @@ void create::run() {
         if (start_wait_fd < 0) {
             throw std::system_error{
                 errno, std::system_category(), "open start fifo"};
+        }
+        auto exec_wait_fd = ::open(exec_wait.c_str(), O_RDWR | O_CLOEXEC);
+        if (exec_wait_fd < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "open exec fifo"};
         }
 
         // Wait for our parent to signal us via the socket
@@ -596,11 +610,18 @@ void create::run() {
         }
         ::close(start_wait_fd);
 
-        // Run startContainer hooks inside the jail.
-        hook::run_hooks(app_, config_hooks, "startContainer", state);
+        try {
+            // Run startContainer hooks inside the jail.
+            hook::run_hooks(app_, config_hooks, "startContainer", state);
 
-        // Execute the requested process inside the jail.
-        proc.exec(stdin_fd, stdout_fd, stderr_fd);
+            // Execute the requested process inside the jail.
+            proc.exec(stdin_fd, stdout_fd, stderr_fd);
+        } catch (const std::exception& e) {
+            // Report the failure to start.
+            std::string_view msg{e.what()};
+            ::write(exec_wait_fd, msg.data(), msg.size());
+            throw;
+        }
     }
 }
 
