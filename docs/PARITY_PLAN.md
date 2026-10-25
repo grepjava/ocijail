@@ -39,7 +39,7 @@ runtime refuses the request with a clear error and reports it accurately in
 | Global `--debug` `--systemd-cgroup` `--cgroup-manager` `--rootless` | ✅ | ❌ | ✅ `global-flags` |
 | `exec` command as arguments | ✅ | ❌ (only `--process`) | ✅ `exec-argv` |
 | `exec` flags `--cwd -e --user` | ✅ | ❌ | ✅ `exec-flags` |
-| `exec --no-new-privs` | ✅ | ❌ | ⏳ needs `exec-flags` + `no-new-privs` integrated |
+| `exec --no-new-privs` | ✅ | ❌ | ✅ `exec-no-new-privs` (on `exec-flags` + `no-new-privs`) |
 | `exec --cap` `--process-label` | ✅ | ❌ | ➖ not added (no capabilities or labels on FreeBSD) |
 | `kill --all` | ✅ | ⚠️ parsed, then ignored | ✅ PR #26 |
 | `kill --pid` | ✅ | ❌ | ✅ PR #33 |
@@ -59,7 +59,7 @@ runtime refuses the request with a clear error and reports it accurately in
 | `process.scheduler` | ✅ | ❌ ignored | ✅ `process-scheduler` (FIFO/RR/IDLE/nice) |
 | Linux-only process fields (caps, AppArmor, SELinux, `oomScoreAdj`, `ioPriority`) | ✅ | ⚠️ silently ignored | ✅ rejected unless empty (`linux-process-fields`) |
 | Resource limits, `update`, `events`/stats | cgroups | ❌ | ⏳ Phase 5 (rctl; needs racct and a host reboot) |
-| `pause` / `resume` | ✅ (freezer) | ❌ | ⏳ Phase 5 (SIGSTOP sweep) |
+| `pause` / `resume` | ✅ (freezer) | ❌ | ✅ `pause-resume` (on `kill-all`): SIGSTOP sweep until every process has stopped |
 | `checkpoint` / `restore` | ✅ (CRIU) | ❌ | ➖ out of scope (no CRIU) |
 | seccomp, user ns, idmapped mounts, cgroups, mount propagation, rootless | ✅ | ❌ | ➖ out of scope (no FreeBSD equivalent) |
 
@@ -108,6 +108,8 @@ them and to dfr/ocijail#35.
 | 3 | `freebsd.devices` (devfs `unhide` rules on the container's `/dev`) | `freebsd-devices` | pushed |
 | 3 | `domainname` → `host.domainname` | `domainname` | pushed |
 | 3 | `freebsd.jail` section and `ociVersion` 1.3.0 in `spec` output | `spec-freebsd` (on `spec`) | pushed |
+| 1 | `exec --no-new-privs` | `exec-no-new-privs` (on `exec-flags`, with `no-new-privs` cherry-picked) | pushed |
+| 5 | `pause`/`resume`; `paused` handled by `kill`, `exec`, `delete --force` | `pause-resume` (on `kill-all`) | pushed |
 | 4 | `rlimits` | `process-rlimits` | pushed |
 | 4 | `noNewPrivileges` | `no-new-privs` | pushed |
 | 4 | `consoleSize` | `console-size` | pushed |
@@ -116,10 +118,7 @@ them and to dfr/ocijail#35.
 
 **Remaining:**
 
-- Phase 1: `exec --no-new-privs`, which needs `exec-flags` and
-  `no-new-privs` together; `delete --force` for `paused`, which comes
-  with Phase 5.
-- Phase 5: all of it. The test host has `kern.racct.enable=0`, so it
+- Phase 5: everything except `pause`/`resume`. The test host has `kern.racct.enable=0`, so it
   needs `kern.racct.enable=1` in `/boot/loader.conf` and a reboot first.
 - Phase 0 infrastructure (CI, crun differential harness,
   runtime-tools) and Phase 6. CI is deferred for now.
@@ -219,7 +218,7 @@ covering the existing commands.
 
 ## Phase 1: CLI surface parity
 
-**Status:** done apart from `exec --no-new-privs` (waiting on integration) and `delete --force` for `paused` (Phase 5). `--process-label` and `--cap` weren't added. In `run`, a foreground container uses the caller's terminal rather than a pty that ocijail proxies.
+**Status:** done. `--process-label` and `--cap` weren't added. In `run`, a foreground container uses the caller's terminal rather than a pty that ocijail proxies.
 
 *Goal: every crun subcommand podman calls exists and accepts crun's flags.*
 
@@ -335,7 +334,7 @@ tests for each field.
 
 ## Phase 5: Resource control (the cgroups counterpart)
 
-**Status:** not started. It needs racct enabled on the test host, which means a reboot.
+**Status:** `pause`/`resume` are done (`pause-resume`). rctl, `update` and `events` need racct enabled on the test host, which means a reboot.
 
 *Goal: give `update`, `events --stats`, `pause` and `resume` real
 implementations backed by rctl/racct. This requires the
