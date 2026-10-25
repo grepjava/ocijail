@@ -70,6 +70,26 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.4.0"
         self.check_bad_config(c)
 
+    def test_process_rlimits(self):
+        c = self.config()
+        c["process"]["rlimits"] = [
+            {"type": "RLIMIT_NOFILE", "soft": 1024, "hard": 2048},
+            {"type": "RLIMIT_CORE", "soft": 0, "hard": 18446744073709551615},
+        ]
+        self.check_good_config(c)
+        c["process"]["rlimits"] = {"type": "RLIMIT_NOFILE"}
+        self.check_bad_config(c)
+        c["process"]["rlimits"] = [{"soft": 1, "hard": 1}]
+        self.check_bad_config(c)
+        c["process"]["rlimits"] = [
+            {"type": "RLIMIT_NOFILE", "soft": -1, "hard": 1}]
+        self.check_bad_config(c)
+        c["process"]["rlimits"] = [
+            {"type": "RLIMIT_NOFILE", "soft": "1", "hard": 1}]
+        self.check_bad_config(c)
+        c["process"]["rlimits"] = [{"type": "RLIMIT_BOGUS", "soft": 1, "hard": 1}]
+        self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()

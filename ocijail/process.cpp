@@ -16,6 +16,41 @@ using nlohmann::json;
 
 namespace ocijail {
 
+namespace {
+
+// The resource limits which FreeBSD has, by their OCI names
+const std::map<std::string, int> rlimit_resources = {
+    {"RLIMIT_AS", RLIMIT_AS},
+    {"RLIMIT_CORE", RLIMIT_CORE},
+    {"RLIMIT_CPU", RLIMIT_CPU},
+    {"RLIMIT_DATA", RLIMIT_DATA},
+    {"RLIMIT_FSIZE", RLIMIT_FSIZE},
+    {"RLIMIT_KQUEUES", RLIMIT_KQUEUES},
+    {"RLIMIT_MEMLOCK", RLIMIT_MEMLOCK},
+    {"RLIMIT_NOFILE", RLIMIT_NOFILE},
+    {"RLIMIT_NPROC", RLIMIT_NPROC},
+    {"RLIMIT_NPTS", RLIMIT_NPTS},
+    {"RLIMIT_PIPEBUF", RLIMIT_PIPEBUF},
+    {"RLIMIT_RSS", RLIMIT_RSS},
+    {"RLIMIT_SBSIZE", RLIMIT_SBSIZE},
+    {"RLIMIT_STACK", RLIMIT_STACK},
+    {"RLIMIT_SWAP", RLIMIT_SWAP},
+    {"RLIMIT_UMTXP", RLIMIT_UMTXP},
+    {"RLIMIT_VMEM", RLIMIT_VMEM},
+};
+
+rlim_t rlimit_value(const json& rlimit, const char* key) {
+    if (!rlimit.contains(key) || !rlimit[key].is_number_unsigned()) {
+        malformed_config(
+            "process.rlimits hard and soft must be non-negative integers");
+    }
+    // Anything too large to represent is unlimited.
+    auto v = rlimit[key].get<uint64_t>();
+    return v >= uint64_t(RLIM_INFINITY) ? RLIM_INFINITY : rlim_t(v);
+}
+
+}  // namespace
+
 process::process(const json& process_json,
                  std::optional<std::filesystem::path> console_socket,
                  bool detach,
@@ -106,6 +141,28 @@ process::process(const json& process_json,
                 malformed_config("process.env must be an array of strings");
             }
             env_.push_back(arg.get<std::string>());
+        }
+    }
+
+    if (process_json.contains("rlimits")) {
+        auto& config_rlimits = process_json["rlimits"];
+        if (!config_rlimits.is_array()) {
+            malformed_config("process.rlimits must be an array");
+        }
+        for (auto& rlimit : config_rlimits) {
+            if (!rlimit.is_object() || !rlimit.contains("type") ||
+                !rlimit["type"].is_string()) {
+                malformed_config(
+                    "process.rlimits must be an array of objects with a type");
+            }
+            auto type = rlimit["type"].get<std::string>();
+            auto it = rlimit_resources.find(type);
+            if (it == rlimit_resources.end()) {
+                throw std::runtime_error("unsupported rlimit " + type);
+            }
+            rlimits_.emplace_back(it->second,
+                                  rlimit_value(rlimit, "soft"),
+                                  rlimit_value(rlimit, "hard"));
         }
     }
 
@@ -247,6 +304,16 @@ void process::reset_signals() {
     }
 }
 
+void process::set_rlimits() {
+    for (auto [resource, soft, hard] : rlimits_) {
+        struct rlimit rl = {.rlim_cur = soft, .rlim_max = hard};
+        if (::setrlimit(resource, &rl) < 0) {
+            throw std::system_error{
+                errno, std::system_category(), "error calling setrlimit"};
+        }
+    }
+}
+
 void process::set_uid_gid() {
     if (::setgroups(gids_.size(), &gids_[0]) < 0) {
         throw std::system_error{
@@ -297,6 +364,9 @@ void process::exec(int stdin_fd, int stdout_fd, int stderr_fd) {
 
     // Unblock signals
     reset_signals();
+
+    // Set resource limits while we can still raise them.
+    set_rlimits();
 
     // Set the uid, gid etc.
     set_uid_gid();

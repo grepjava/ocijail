@@ -188,6 +188,39 @@ class test_run(unittest.TestCase):
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
 
+    def test_rlimits(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "ulimit -n; ulimit -H -n"]
+        c["process"]["rlimits"] = [
+            {"type": "RLIMIT_NOFILE", "soft": 1000, "hard": 2000},
+        ]
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "1000\n2000\n")
+        self.delete()
+
+        # podman's defaults are above the system's limits, which apply
+        # instead.
+        maxfiles = int(subprocess.run(
+            args=["sysctl", "-n", "kern.maxfilesperproc"],
+            capture_output=True).stdout)
+        c["process"]["rlimits"] = [
+            {"type": "RLIMIT_NOFILE", "soft": 1048576, "hard": 1048576},
+            {"type": "RLIMIT_NPROC", "soft": 1048576, "hard": 1048576},
+        ]
+        c["process"]["args"] = ["sh", "-c", "ulimit -n"]
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(int(out), maxfiles)
+        self.delete()
+
+        # Linux limits which FreeBSD lacks are rejected.
+        c["process"]["rlimits"] = [
+            {"type": "RLIMIT_RTTIME", "soft": 1, "hard": 1},
+        ]
+        ret, _, _ = self.run_with_config(c, expected_ret=1)
+        self.assertEqual(ret, 1)
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
