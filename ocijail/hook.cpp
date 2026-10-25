@@ -1,3 +1,7 @@
+#include <err.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/procdesc.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -74,8 +78,13 @@ void hook::validate_hooks(main_app& app,
                 }
             }
         }
-        if (hook.contains("timeout") && !hook["timeout"].is_number()) {
-            malformed_config("hook.timeout must be a number");
+        if (hook.contains("timeout")) {
+            if (!hook["timeout"].is_number_integer()) {
+                malformed_config("hook.timeout must be an integer");
+            }
+            if (hook["timeout"] <= 0) {
+                malformed_config("hook.timeout must be greater than zero");
+            }
         }
     }
 }
@@ -88,8 +97,28 @@ void hook::run_hooks(main_app& app,
         return;
     }
 
+    bool warn_only = std::string_view{phase} == "poststart" ||
+                     std::string_view{phase} == "poststop";
     for (auto& hook_config : hooks[phase]) {
-        hook(hook_config).run(app, state);
+        hook h{hook_config};
+        std::stringstream ss;
+        try {
+            auto ret = h.run(app, state);
+            if (ret == 0) {
+                continue;
+            }
+            ss << phase << " hook " << h.path_ << " failed with status "
+               << ret;
+        } catch (const std::exception& e) {
+            if (!warn_only) {
+                throw;
+            }
+            ss << e.what();
+        }
+        if (!warn_only) {
+            throw std::runtime_error(ss.str());
+        }
+        app.log() << "warning: " << ss.str();
     }
 }
 
@@ -120,7 +149,14 @@ int hook::run(main_app& app, const runtime_state& state) {
 
     std::stringstream ss;
     ss << state.report();
-    auto pid = ::fork();
+    // Use a process descriptor so that we can wait for the hook with a
+    // timeout. Closing it kills the hook if it is still running.
+    int pd;
+    auto pid = ::pdfork(&pd, 0);
+    if (pid < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "error forking hook"};
+    }
     if (pid) {
         // Parent process - write the state json
         auto s = ss.str();
@@ -140,9 +176,28 @@ int hook::run(main_app& app, const runtime_state& state) {
             throw std::system_error{
                 errno, std::system_category(), "error closing hook stdin pipe"};
         }
+        if (timeout_) {
+            struct pollfd pfd = {.fd = pd, .events = POLLHUP};
+            int res;
+            do {
+                res = ::poll(&pfd, 1, *timeout_ * 1000);
+            } while (res < 0 && errno == EINTR);
+            if (res < 0) {
+                throw std::system_error{
+                    errno, std::system_category(), "error waiting for hook"};
+            }
+            if (res == 0) {
+                ::close(pd);
+                ::waitpid(pid, nullptr, 0);
+                std::stringstream ss;
+                ss << "hook " << path_ << " timed out after " << *timeout_
+                   << " seconds";
+                throw std::runtime_error(ss.str());
+            }
+        }
         int status;
-        // TODO: timeout
         auto res = ::waitpid(pid, &status, 0);
+        ::close(pd);
         if (res < 0) {
             throw std::system_error{
                 errno, std::system_category(), "error waiting for hook"};
@@ -164,8 +219,7 @@ int hook::run(main_app& app, const runtime_state& state) {
         }
         // The path should be absolute - no PATH lookup is needed
         ::execve(argv[0], &argv[0], envp);
-        throw std::system_error{
-            errno, std::system_category(), "error executing hook" + path_};
+        ::err(127, "error executing hook %s", path_.c_str());
     }
 }
 

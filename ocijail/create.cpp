@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <signal.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/mount.h>
@@ -484,26 +485,35 @@ void create::run() {
         state["pid"] = pid;
         state.save();
 
-        hook::run_hooks(app_, config_hooks, "createRuntime", state);
+        char status = 0;
+        try {
+            hook::run_hooks(app_, config_hooks, "createRuntime", state);
+        } catch (const std::exception& e) {
+            app_.log_error(e);
+            status = 1;
+        }
 
         lk.unlock();
 
-        // Signal the child to execute any hooks and validate that the
-        // container process can be found.
-        char ch = 1;
-        auto n = ::write(create_sock[0], &ch, 1);
-        if (n < 0) {
-            throw std::system_error{
-                errno, std::system_category(), "write to create socket"};
-        }
+        if (status == 0) {
+            // Signal the child to execute any hooks and validate that the
+            // container process can be found.
+            char ch = 1;
+            auto n = ::write(create_sock[0], &ch, 1);
+            if (n < 0) {
+                throw std::system_error{
+                    errno, std::system_category(), "write to create socket"};
+            }
 
-        // Read back the child's status - this is our exit status. The
-        // child will have already written to stderr if necessary.
-        char status;
-        n = ::read(create_sock[0], &status, 1);
-        if (n < 0) {
-            throw std::system_error{
-                errno, std::system_category(), "read from create socket"};
+            // Read back the child's status - this is our exit status. The
+            // child will have already written to stderr if necessary.
+            n = ::read(create_sock[0], &status, 1);
+            if (n < 0) {
+                throw std::system_error{
+                    errno, std::system_category(), "read from create socket"};
+            }
+        } else {
+            ::kill(pid, SIGKILL);
         }
         if (status != 0) {
             // If the create failed, we need to clean up: unmount the volumes and

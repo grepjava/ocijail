@@ -18,13 +18,16 @@ struct hook {
                                const nlohmann::json& hooks,
                                const char* phase);
 
-    // Run all the hooks for a phase
+    // Run all the hooks for a phase. If a hook fails, this throws an error
+    // except for poststart and poststop hooks, where it logs a warning, as
+    // the specification requires.
     static void run_hooks(main_app& app,
                           const nlohmann::json& hooks,
                           const char* phase,
                           const runtime_state& state);
 
-    // Run this hook
+    // Run this hook, returning its exit status. If it doesn't finish
+    // within its timeout, it is killed and this throws an error.
     int run(main_app& app, const runtime_state& state);
 
    private:
