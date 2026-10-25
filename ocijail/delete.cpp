@@ -59,7 +59,8 @@ void delete_::run() {
         // Nothing to do here
     } else if (state["status"] == "created") {
         ::kill(state["pid"], SIGKILL);
-    } else if (state["status"] == "running" && force_) {
+    } else if ((state["status"] == "running" || state["status"] == "paused") &&
+               force_) {
         ::kill(state["pid"], SIGKILL);
     } else {
         std::stringstream ss;

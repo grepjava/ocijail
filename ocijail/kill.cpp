@@ -90,7 +90,8 @@ void kill::run() {
         return;
     }
 
-    if (state["status"] == "created" || state["status"] == "running") {
+    if (state["status"] == "created" || state["status"] == "running" ||
+        state["status"] == "paused") {
         if (::kill(state["pid"], signum) < 0 && errno != ESRCH) {
             throw std::system_error(
                 errno,

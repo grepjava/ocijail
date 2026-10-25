@@ -38,6 +38,14 @@ struct jail {
     // Return the pids of all processes running in the jail
     std::vector<pid_t> processes() const;
 
+    // Return the processes in the jail with whether each has stopped (or
+    // exited) and so can't fork
+    struct process {
+        pid_t pid;
+        bool stopped;
+    };
+    std::vector<process> process_info() const;
+
     void remove();
 
     template <typename T>

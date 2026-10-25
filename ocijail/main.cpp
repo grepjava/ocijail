@@ -12,6 +12,7 @@
 #include "ocijail/kill.h"
 #include "ocijail/list.h"
 #include "ocijail/main.h"
+#include "ocijail/pause.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
 
@@ -31,6 +32,7 @@ int main(int argc, char** argv) {
     state::init(app);
     list::init(app);
     features::init(app);
+    pause::init(app);
 
     try {
         app.parse(argc, argv);
@@ -143,7 +145,8 @@ runtime_state::locked_state runtime_state::lock() {
 }
 
 void runtime_state::check_status() {
-    if (state_["status"] == "created" || state_["status"] == "running") {
+    if (state_["status"] == "created" || state_["status"] == "running" ||
+        state_["status"] == "paused") {
         if (::kill(state_["pid"], 0) < 0 && errno == ESRCH) {
             state_["status"] = "stopped";
             save();

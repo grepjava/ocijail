@@ -65,6 +65,9 @@ void exec::run() {
     auto lk = state.lock();
     state.load();
 
+    if (state["status"] == "paused") {
+        throw std::runtime_error("exec: container " + id_ + " is paused");
+    }
     auto j = jail::find(int(state["jid"]));
 
     if (detach_) {

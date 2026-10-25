@@ -1,6 +1,7 @@
 #include <sys/param.h>
 
 #include <sys/jail.h>
+#include <sys/proc.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
 #include <cassert>
@@ -66,6 +67,14 @@ void jail::attach() {
 }
 
 std::vector<pid_t> jail::processes() const {
+    std::vector<pid_t> pids;
+    for (auto& p : process_info()) {
+        pids.push_back(p.pid);
+    }
+    return pids;
+}
+
+std::vector<jail::process> jail::process_info() const {
     int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
     std::vector<struct kinfo_proc> procs;
     for (;;) {
@@ -88,13 +97,14 @@ std::vector<pid_t> jail::processes() const {
         }
     }
 
-    std::vector<pid_t> pids;
+    std::vector<process> res;
     for (const auto& kp : procs) {
         if (kp.ki_jid == jid_) {
-            pids.push_back(kp.ki_pid);
+            res.push_back(
+                {kp.ki_pid, kp.ki_stat == SSTOP || kp.ki_stat == SZOMB});
         }
     }
-    return pids;
+    return res;
 }
 
 void jail::remove() {
