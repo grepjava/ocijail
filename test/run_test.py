@@ -188,6 +188,32 @@ class test_run(unittest.TestCase):
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
 
+    def test_freebsd_devices(self):
+        # Devices hidden by the devfs ruleset can be exposed, with a mode
+        with tempfile.TemporaryDirectory() as root_dir:
+            shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
+            c = self.config()
+            c["root"]["path"] = root_dir
+            c["process"]["env"] = ["PATH=/rescue"]
+            c["process"]["args"] = ["sh", "-c", "ls -l /dev/mem; exit 0"]
+            c["mounts"] = [{"destination": "/dev", "type": "devfs",
+                            "source": "devfs", "options": ["ruleset=4"]}]
+            try:
+                ret, out, _ = self.run_with_config(c)
+                self.assertEqual(ret, 0)
+                self.assertEqual(out, "")
+            finally:
+                # Unmount /dev before root_dir is removed
+                self.delete()
+
+            c["freebsd"] = {"devices": [{"path": "mem", "mode": 0o600}]}
+            try:
+                ret, out, _ = self.run_with_config(c)
+                self.assertEqual(ret, 0)
+                self.assertTrue(out.startswith("crw------- "), out)
+            finally:
+                self.delete()
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
