@@ -184,10 +184,22 @@ main_app::main_app(const std::string& title) : CLI::App(title) {
     add_option("--log-level", log_level_, "Log level")
         ->transform(CLI::CheckedTransformer(log_levels, CLI::ignore_case));
     add_option("--log", log_file_, "Log file");
+    add_flag("--debug", debug_, "Produce verbose output, like --log-level=debug");
+
+    // Accepted so that a command line for crun or runc works. Jails have no
+    // cgroups and must be created by root.
+    add_flag("--systemd-cgroup")->description("Ignored");
+    add_option("--cgroup-manager")
+        ->description("Ignored")
+        ->check(CLI::IsMember({"cgroupfs", "systemd", "disabled"}));
+    add_option("--rootless")->description("Ignored");
 
     require_subcommand(1);
 
     parse_complete_callback([this] {
+        if (debug_) {
+            log_level_ = log_level::DEBUG;
+        }
         if (log_file_) {
             log_fd_ =
                 ::open(log_file_->c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600);

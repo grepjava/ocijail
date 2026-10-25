@@ -70,6 +70,25 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.4.0"
         self.check_bad_config(c)
 
+    def test_global_flags(self):
+        # crun's global flags are accepted, even if they have no effect
+        c = self.config()
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            def create(*flags):
+                args = ["ocijail/ocijail", *flags, "--testing=validation",
+                        "create", "--bundle", bundle_dir, "my_id"]
+                return subprocess.run(args=args).returncode
+            self.assertEqual(create("--debug"), 0)
+            self.assertEqual(create("--systemd-cgroup"), 0)
+            self.assertEqual(create("--cgroup-manager", "cgroupfs"), 0)
+            self.assertEqual(create("--cgroup-manager", "systemd"), 0)
+            self.assertEqual(create("--cgroup-manager", "disabled"), 0)
+            self.assertNotEqual(create("--cgroup-manager", "bogus"), 0)
+            self.assertEqual(create("--rootless", "false"), 0)
+            self.assertEqual(create("--rootless", "true"), 0)
+
     def test_process(self):
         # process must be present
         c = self.config()
