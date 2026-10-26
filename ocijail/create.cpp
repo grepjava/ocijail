@@ -255,6 +255,54 @@ void create::run() {
         }
     }
 
+    // Devices to expose in the container's /dev, as devfs rules
+    std::vector<std::string> device_rules;
+    if (config.contains("freebsd") && config["freebsd"].is_object() &&
+        config["freebsd"].contains("devices")) {
+        auto& devices = config["freebsd"]["devices"];
+        if (!devices.is_array()) {
+            malformed_config("freebsd.devices must be an array");
+        }
+        for (auto& device : devices) {
+            if (!device.is_object() || !device.contains("path") ||
+                !device["path"].is_string()) {
+                malformed_config(
+                    "freebsd.devices must be an array of objects with a path");
+            }
+            std::string path = device["path"];
+            if (path.empty() || path[0] == '/' ||
+                path.find(' ') != std::string::npos) {
+                malformed_config("freebsd.devices path must be relative to "
+                                 "/dev and contain no spaces");
+            }
+            std::stringstream rule;
+            rule << "path " << path << " unhide";
+            if (device.contains("mode")) {
+                if (!device["mode"].is_number_unsigned() ||
+                    device["mode"] > 07777) {
+                    malformed_config("freebsd.devices mode must be a file mode");
+                }
+                rule << " mode " << std::oct << device["mode"].get<unsigned>();
+            }
+            device_rules.push_back(rule.str());
+        }
+        if (!device_rules.empty()) {
+            bool have_devfs = false;
+            if (config_mounts.is_array()) {
+                for (auto& mount : config_mounts) {
+                    if (mount["destination"] == "/dev" &&
+                        mount.contains("type") && mount["type"] == "devfs") {
+                        have_devfs = true;
+                    }
+                }
+            }
+            if (!have_devfs) {
+                throw std::runtime_error(
+                    "freebsd.devices needs a devfs mount on /dev");
+            }
+        }
+    }
+
     // Validate hooks, if present
     auto& config_hooks = config["hooks"];
     if (!config_hooks.is_null()) {
@@ -741,6 +789,9 @@ void create::run() {
             volumes_mounted = true;
             state["volumes_mounted"] = true;
             state.save();
+        }
+        for (auto& rule : device_rules) {
+            apply_devfs_rule(root_path / "dev", rule);
         }
 
         // Create the jail for our container. If we have a parent, attach

@@ -184,6 +184,26 @@ class test_create(unittest.TestCase):
         c["freebsd"] = {"jail": {"host": "new"}}
         self.check_good_config(c)
 
+    def test_freebsd_devices(self):
+        c = self.config()
+        c["mounts"] = [{"destination": "/dev", "type": "devfs",
+                        "source": "devfs", "options": ["ruleset=4"]}]
+        c["freebsd"] = {"devices": [{"path": "pf"},
+                                    {"path": "mem", "mode": 0o600}]}
+        self.check_good_config(c)
+        for devices in [
+            {"path": "pf"},
+            [{"mode": 0o600}],
+            [{"path": "/dev/pf"}],
+            [{"path": "pf", "mode": "0600"}],
+        ]:
+            c["freebsd"] = {"devices": devices}
+            self.check_bad_config(c)
+        # A devfs mount on /dev is needed
+        c = self.config()
+        c["freebsd"] = {"devices": [{"path": "pf"}]}
+        self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()

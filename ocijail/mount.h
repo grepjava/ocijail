@@ -2,12 +2,18 @@
 
 #include <filesystem>
 #include <optional>
+#include <string_view>
 
 #include "nlohmann/json.hpp"
 
 namespace ocijail {
 
 class runtime_state;
+
+// Apply a devfs rule, e.g. "path pf unhide", to the devfs mounted at
+// destination.
+void apply_devfs_rule(const std::filesystem::path& destination,
+                      std::string_view rule);
 
 int do_mount(
     const std::vector<std::tuple<std::string, std::string>>& mount_opts,
