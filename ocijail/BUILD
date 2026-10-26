@@ -11,6 +11,8 @@ cc_binary(
         "create.h",
         "delete.cpp",
         "delete.h",
+        "events.cpp",
+        "events.h",
         "exec.cpp",
         "exec.h",
         "features.cpp",
