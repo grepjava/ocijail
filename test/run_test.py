@@ -495,6 +495,57 @@ class test_run(unittest.TestCase):
                     stderr.close()
                     os.waitpid(pid, os.WEXITED)
 
+    def test_start_waits_for_exec(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            # poststart hooks run once the container has executed its
+            # command
+            script = (
+                "import json, subprocess, sys\n"
+                "pid = json.load(sys.stdin)['pid']\n"
+                "out = subprocess.run(['ps', '-o', 'comm=', '-p', str(pid)],"
+                " capture_output=True).stdout\n"
+                f"open('{scratch}/comm', 'wb').write(out)\n")
+            c = self.config()
+            c["process"]["args"] = ["sleep", "60"]
+            c["hooks"] = {
+                "poststart": [
+                    {
+                        "path": sys.executable,
+                        "args": ["-c", script]
+                    }
+                ]
+            }
+            with tempfile.TemporaryDirectory() as bundle_dir:
+                with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                    json.dump(c, f)
+                pid, stdout, stderr = self.create(bundle_dir)
+                try:
+                    self.start()
+                    with open(f"{scratch}/comm") as f:
+                        self.assertEqual(f.read(), "sleep\n")
+                finally:
+                    os.kill(pid, 9)
+                    stdout.close()
+                    stderr.close()
+                    os.waitpid(pid, os.WEXITED)
+                    self.delete()
+
+        # If the container can't execute its command, start fails
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        c["process"]["cwd"] = "/nonexistent"
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            ret = subprocess.run(
+                args=[cmd, "start", self.container_id], capture_output=True)
+            self.assertNotEqual(ret.returncode, 0)
+            self.assertIn(b"/nonexistent", ret.stderr)
+            stdout.close()
+            stderr.close()
+            os.waitpid(pid, os.WEXITED)
+
     def test_hook_create_container(self):
         with tempfile.TemporaryDirectory() as root_dir:
             shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
