@@ -103,6 +103,40 @@ class test_create(unittest.TestCase):
             self.assertEqual(create("--rootless", "false"), 0)
             self.assertEqual(create("--rootless", "true"), 0)
 
+    def test_spec(self):
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            def spec(*args):
+                args = ["ocijail/ocijail", "spec", *args]
+                return subprocess.run(args=args).returncode
+            config_path = os.path.join(bundle_dir, "config.json")
+            self.assertEqual(spec("--bundle", bundle_dir), 0)
+            with open(config_path) as f:
+                c = json.load(f)
+            self.assertEqual(c["root"]["path"], "rootfs")
+            self.assertEqual(c["process"]["args"], ["sh"])
+
+            # The generated config is valid. It asks for a terminal, so it
+            # needs a console socket.
+            os.mkdir(os.path.join(bundle_dir, "rootfs"))
+            console_socket = os.path.join(bundle_dir, "sock")
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.bind(console_socket)
+                res = subprocess.run(args=[
+                    "ocijail/ocijail", "--testing=validation", "create",
+                    "--bundle", bundle_dir,
+                    "--console-socket", console_socket, "my_id"])
+            self.assertEqual(res.returncode, 0)
+
+            # An existing config.json is only replaced with --file
+            self.assertNotEqual(spec("--bundle", bundle_dir), 0)
+            self.assertEqual(
+                spec("--bundle", bundle_dir, "--file", "config.json"), 0)
+            self.assertEqual(
+                spec("--bundle", bundle_dir, "-f", "other.json"), 0)
+            self.assertTrue(
+                os.path.exists(os.path.join(bundle_dir, "other.json")))
+            self.assertNotEqual(spec("--bundle", bundle_dir, "--rootless"), 0)
+
     def test_process(self):
         # process must be present
         c = self.config()

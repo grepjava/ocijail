@@ -31,6 +31,8 @@ cc_binary(
         "process.h",
         "ps.cpp",
         "ps.h",
+        "spec.cpp",
+        "spec.h",
         "start.cpp",
         "start.h",
         "state.cpp",
