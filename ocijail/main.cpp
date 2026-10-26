@@ -7,6 +7,7 @@
 
 #include "ocijail/create.h"
 #include "ocijail/delete.h"
+#include "ocijail/events.h"
 #include "ocijail/exec.h"
 #include "ocijail/features.h"
 #include "ocijail/kill.h"
@@ -31,6 +32,7 @@ int main(int argc, char** argv) {
     state::init(app);
     list::init(app);
     features::init(app);
+    events::init(app);
 
     try {
         app.parse(argc, argv);

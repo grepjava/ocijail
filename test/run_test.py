@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 cmd = "ocijail/ocijail"
@@ -266,6 +267,63 @@ class test_run(unittest.TestCase):
                 os.waitpid(pid, os.WEXITED)
                 self.delete()
         self.assertEqual(self.rctl_rules(), [])
+
+    def test_events(self):
+        c = self.config()
+        c["process"]["args"] = [
+            "sh", "-c", "sleep 30 & sleep 30 & while :; do :; done"]
+        c["linux"] = {"resources": {
+            "memory": {"limit": 256 * 1024 * 1024},
+            "pids": {"limit": 50},
+        }}
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            try:
+                self.start()
+                # racct updates CPU time once a second
+                time.sleep(2.5)
+                ret = subprocess.run(
+                    args=[cmd, "events", "--stats", self.container_id],
+                    capture_output=True)
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                event = json.loads(ret.stdout)
+                self.assertEqual(event["type"], "stats")
+                self.assertEqual(event["id"], self.container_id)
+                data = event["data"]
+                self.assertGreater(data["cpu"]["usage"]["total"], 0)
+                self.assertGreater(data["memory"]["usage"]["usage"], 0)
+                self.assertEqual(
+                    data["memory"]["usage"]["limit"], 256 * 1024 * 1024)
+                self.assertEqual(data["pids"]["current"], 3)
+                self.assertEqual(data["pids"]["limit"], 50)
+
+                # Without --stats, events reports until the container stops
+                with subprocess.Popen(
+                    args=[cmd, "events", "--interval", "200ms",
+                          self.container_id],
+                    stdout=subprocess.PIPE
+                ) as proc:
+                    first = json.loads(proc.stdout.readline())
+                    self.assertEqual(first["type"], "stats")
+                    second = json.loads(proc.stdout.readline())
+                    self.assertEqual(second["type"], "stats")
+                    os.kill(pid, 9)
+                    os.waitpid(pid, os.WEXITED)
+                    pid = None
+                    proc.stdout.read()
+                    self.assertEqual(proc.wait(timeout=10), 0)
+            finally:
+                if pid:
+                    os.kill(pid, 9)
+                    os.waitpid(pid, os.WEXITED)
+                stdout.close()
+                stderr.close()
+        ret = subprocess.run(
+            args=[cmd, "events", "--stats", self.container_id],
+            capture_output=True)
+        self.assertNotEqual(ret.returncode, 0)
 
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
