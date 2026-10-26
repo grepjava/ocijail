@@ -896,6 +896,64 @@ class test_run(unittest.TestCase):
                 self.delete()
         self.assertEqual(self.rctl_rules(), [])
 
+    def test_update(self):
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        c["linux"] = {"resources": {"pids": {"limit": 100}}}
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            def update(*args):
+                return subprocess.run(
+                    args=[cmd, "update", *args, self.container_id],
+                    capture_output=True)
+            try:
+                self.assertEqual(self.rctl_rules(), ["maxproc:deny=100"])
+
+                # Options change part of the resources
+                ret = update("--memory", "64m", "--cpu-quota", "25000")
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(self.rctl_rules(), [
+                    "maxproc:deny=100",
+                    "memoryuse:sigkill=67108864",
+                    "pcpu:deny=25",
+                ])
+
+                # A resources file replaces them, before applying options
+                resources = os.path.join(bundle_dir, "resources.json")
+                with open(resources, "w") as f:
+                    json.dump({"pids": {"limit": 10}}, f)
+                ret = update("-r", resources, "--memory-swap", "1.5G")
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(self.rctl_rules(), [
+                    "maxproc:deny=10",
+                    "swapuse:deny=1610612736",
+                ])
+
+                # The update is saved, so later updates build on it
+                ret = update("--pids-limit", "20")
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(self.rctl_rules(), [
+                    "maxproc:deny=20",
+                    "swapuse:deny=1610612736",
+                ])
+
+                for args in [["--memory", "lots"], ["--pids-limit", "1.5"],
+                             ["--cpu-share", "100"]]:
+                    ret = update(*args)
+                    self.assertNotEqual(ret.returncode, 0, args)
+            finally:
+                os.kill(pid, 9)
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
+        # A stopped container can't be updated
+        ret = update("--pids-limit", "5")
+        self.assertNotEqual(ret.returncode, 0)
+        self.delete()
+        self.assertEqual(self.rctl_rules(), [])
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

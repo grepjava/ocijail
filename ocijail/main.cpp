@@ -19,6 +19,7 @@
 #include "ocijail/pause.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
+#include "ocijail/update.h"
 
 using namespace ocijail;
 using nlohmann::json;
@@ -39,6 +40,7 @@ int main(int argc, char** argv) {
     features::init(app);
     spec::init(app);
     pause::init(app);
+    update::init(app);
 
     try {
         app.parse(argc, argv);

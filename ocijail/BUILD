@@ -45,6 +45,8 @@ cc_binary(
         "state.h",
         "tty.cpp",
         "tty.h",
+        "update.cpp",
+        "update.h",
     ],
     deps = [
         "@cliutils_cli11//:cli11",
