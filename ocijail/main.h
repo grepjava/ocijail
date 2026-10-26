@@ -112,6 +112,7 @@ class main_app : public CLI::App {
     test_mode test_mode_{test_mode::NONE};
     log_format log_format_{log_format::TEXT};
     log_level log_level_{log_level::INFO};
+    bool debug_{false};
     std::optional<std::filesystem::path> log_file_;
     int log_fd_{2};
 };
