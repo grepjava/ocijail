@@ -37,6 +37,8 @@ cc_binary(
         "ps.h",
         "spec.cpp",
         "spec.h",
+        "rctl.cpp",
+        "rctl.h",
         "start.cpp",
         "start.h",
         "state.cpp",

@@ -28,6 +28,7 @@
 #include "ocijail/net.h"
 #include "ocijail/process.h"
 #include "ocijail/start.h"
+#include "ocijail/rctl.h"
 #include "ocijail/tty.h"
 
 namespace fs = std::filesystem;
@@ -608,13 +609,17 @@ void create::run() {
         allow_params[param] = value;
     }
 
+    // Resource limits, which are enforced with rctl
+    resource_limits limits;
+    if (config.contains("linux") && config["linux"].is_object() &&
+        config["linux"].contains("resources")) {
+        limits = resource_limits::parse(config["linux"]["resources"]);
+    }
+
     // Create a jail config from the OCI config
     jail::config jconf;
-    if (parent_jail) {
-        jconf.set("name", *parent_jail + "." + id_);
-    } else {
-        jconf.set("name", id_);
-    }
+    auto jail_name = parent_jail ? *parent_jail + "." + id_ : id_;
+    jconf.set("name", jail_name);
     jconf.set("persist");
     jconf.set("enforce_statfs", enforce_statfs);
     for (const auto& [param, value] : allow_params) {
@@ -757,6 +762,7 @@ void create::run() {
             return_interfaces_from_vnet(app_, state);
             created_jail->remove();
         }
+        remove_resource_limits(jail_name);
         remove_interface_aliases(app_, state);
         if (volumes_mounted) {
             unmount_volumes(app_, state, root_path, config_mounts);
@@ -854,6 +860,7 @@ void create::run() {
         state["jid"] = created_jail->jid();
         state.save();
         move_interfaces_to_vnet(state, created_jail->jid(), vnet_interfaces);
+        set_resource_limits(jail_name, limits);
 
         // We record the container state including the bundle config. We
         // need to create the start fifo before forking - this will be
