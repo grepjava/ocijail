@@ -1125,13 +1125,13 @@ class test_run(unittest.TestCase):
                 "prestart": [
                     {
                         "path": "/bin/sh",
-                        "args": ["-c", f"echo prestart >> {scratch}/file"]
+                        "args": ["sh", "-c", f"echo prestart >> {scratch}/file"]
                     }
                 ],
                 "createRuntime": [
                     {
                         "path": "/bin/sh",
-                        "args": ["-c", f"echo createRuntime >> {scratch}/file"]
+                        "args": ["sh", "-c", f"echo createRuntime >> {scratch}/file"]
                     }
                 ]
             }
@@ -1164,7 +1164,7 @@ class test_run(unittest.TestCase):
                 "poststart": [
                     {
                         "path": sys.executable,
-                        "args": ["-c", script]
+                        "args": ["python3", "-c", script]
                     }
                 ]
             }
@@ -1269,13 +1269,24 @@ class test_run(unittest.TestCase):
             self.check_no_container()
 
         # A failing startContainer hook stops the container before its
-        # process runs
+        # process runs, and start reports it
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
             c["process"]["args"] = ["sh", "-c", f"touch {scratch}/ran"]
             c["hooks"] = {"startContainer": [self.hook("exit 3")]}
-            ret, _, _ = self.run_with_config(c)
-            self.assertNotEqual(ret, 0)
+            with tempfile.TemporaryDirectory() as bundle_dir:
+                with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                    json.dump(c, f)
+                pid, stdout, stderr = self.create(bundle_dir)
+                ret = subprocess.run(
+                    args=[cmd, "start", self.container_id],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
+                self.assertIn(b"startContainer hook", ret.stderr)
+                stdout.close()
+                stderr.close()
+                _, status = os.waitpid(pid, os.WEXITED)
+                self.assertNotEqual(status, 0)
             self.assertFalse(os.path.exists(f"{scratch}/ran"))
             self.delete()
 
