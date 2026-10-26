@@ -173,13 +173,33 @@ std::optional<int64_t> process_start_time(pid_t pid) {
     return int64_t(kp.ki_start.tv_sec) * 1000000 + kp.ki_start.tv_usec;
 }
 
+std::optional<jail> runtime_state::find_jail() const {
+    if (!state_.contains("jid")) {
+        return std::nullopt;
+    }
+    std::string name{id_};
+    if (state_.contains("parent_jail")) {
+        name = state_["parent_jail"].get<std::string>() + "." + name;
+    }
+    try {
+        auto j = jail::find(name);
+        if (j.jid() == state_["jid"]) {
+            return j;
+        }
+    } catch (const std::system_error&) {
+    }
+    return std::nullopt;
+}
+
 void runtime_state::check_status() {
     if (state_["status"] == "created" || state_["status"] == "running") {
-        // If the process has exited, its pid may have been reused by some
-        // unrelated process so compare start times as well, if known.
+        // Without its jail the container has stopped. If the process has
+        // exited, its pid may have been reused by some unrelated process so
+        // compare start times as well, if known.
         auto start_time = process_start_time(state_["pid"]);
-        if (!start_time || (state_.contains("pid_start_time") &&
-                            *start_time != state_["pid_start_time"])) {
+        if (!find_jail() || !start_time ||
+            (state_.contains("pid_start_time") &&
+             *start_time != state_["pid_start_time"])) {
             state_["status"] = "stopped";
             save();
         }

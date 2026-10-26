@@ -66,6 +66,7 @@ void kill::run() {
     auto state = app_.get_runtime_state(id_);
     auto lk = state.lock();
     state.load();
+    state.check_status();
 
     if (all_) {
         // Signal every process in the container's jail, not just the

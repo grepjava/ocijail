@@ -75,8 +75,9 @@ void delete_::delete_container(main_app& app,
         throw std::runtime_error(ss.str());
     }
 
-    auto j = jail::find(int(state["jid"]));
-    j.remove();
+    if (auto j = state.find_jail()) {
+        j->remove();
+    }
 
     bool root_readonly = false;
     if (state.contains("root_readonly")) {
