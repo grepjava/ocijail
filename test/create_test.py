@@ -114,6 +114,8 @@ class test_create(unittest.TestCase):
                 c = json.load(f)
             self.assertEqual(c["root"]["path"], "rootfs")
             self.assertEqual(c["process"]["args"], ["sh"])
+            self.assertEqual(c["ociVersion"], "1.3.0")
+            self.assertEqual(c["freebsd"]["jail"]["host"], "new")
 
             # The generated config is valid. It asks for a terminal, so it
             # needs a console socket.
