@@ -28,6 +28,10 @@ struct process {
     // Call this before start - return value is three file descriptors for
     // stdin, stdout, stderr
     std::tuple<int, int, int> pre_start();
+
+    // Set the scheduling policy. This must happen before entering the jail,
+    // since a jail cannot use the realtime or idle classes.
+    void set_scheduler();
     void exec(int stdin_fd, int stdout_fd, int stderr_fd);
 
    private:
@@ -53,6 +57,15 @@ struct process {
     bool no_new_privileges_{false};
     // Rows and columns
     std::optional<std::tuple<unsigned short, unsigned short>> console_size_;
+
+    struct scheduler {
+        // A policy for sched_setscheduler, or SCHED_IDLE for idprio
+        int policy;
+        int priority;
+        int nice;
+    };
+    static constexpr int SCHED_IDLE = -1;
+    std::optional<scheduler> scheduler_;
 };
 
 }  // namespace ocijail

@@ -218,6 +218,7 @@ void exec::run() {
                 // Our part of exec: validate process args.
 
                 // Enter the jail and set the requested working directory.
+                proc.set_scheduler();
                 j->attach();
 
                 // Validate the process executable exists and can be executed
@@ -248,6 +249,7 @@ void exec::run() {
     } else {
         // Otherwise, just exec in this process
         auto [stdin_fd, stdout_fd, stderr_fd] = proc.pre_start();
+        proc.set_scheduler();
         j->attach();
         proc.validate();
         proc.exec(stdin_fd, stdout_fd, stderr_fd);
