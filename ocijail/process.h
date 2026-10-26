@@ -51,6 +51,8 @@ struct process {
     std::vector<std::tuple<int, rlim_t, rlim_t>> rlimits_;
     bool terminal_{false};
     bool no_new_privileges_{false};
+    // Rows and columns
+    std::optional<std::tuple<unsigned short, unsigned short>> console_size_;
 };
 
 }  // namespace ocijail

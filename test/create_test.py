@@ -244,6 +244,17 @@ class test_create(unittest.TestCase):
         c["process"]["noNewPrivileges"] = "true"
         self.check_bad_config(c)
 
+    def test_process_console_size(self):
+        c = self.config()
+        c["process"]["consoleSize"] = {"height": 24, "width": 80}
+        self.check_good_config(c)
+        c["process"]["consoleSize"] = {"height": 24}
+        self.check_bad_config(c)
+        c["process"]["consoleSize"] = {"height": -1, "width": 80}
+        self.check_bad_config(c)
+        c["process"]["consoleSize"] = {"height": 24, "width": 100000}
+        self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()
