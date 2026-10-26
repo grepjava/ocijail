@@ -181,15 +181,18 @@ class test_run(unittest.TestCase):
             with open(process_path, "w") as f:
                 json.dump({"args": ["no_such_command"], "cwd": "/"}, f)
             log_path = os.path.join(bundle_dir, "log")
+            exec_pid_file = os.path.join(bundle_dir, "exec_pid")
             ret = subprocess.run(
                 args=[cmd, "--log", log_path, "--log-format", "json",
-                      "exec", "--detach", "--process", process_path,
-                      self.container_id],
+                      "exec", "--detach", "--pid-file", exec_pid_file,
+                      "--process", process_path, self.container_id],
                 stderr=subprocess.DEVNULL)
             self.assertNotEqual(ret.returncode, 0)
             with open(log_path, "r") as f:
                 log = f.read()
             self.assertIn("'no_such_command' not found in $PATH", log)
+            # No pid is reported for an exec which did not start
+            self.assertFalse(os.path.exists(exec_pid_file))
             self.start()
             os.waitpid(pid, os.WEXITED)
 
