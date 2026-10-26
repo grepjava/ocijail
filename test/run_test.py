@@ -500,6 +500,22 @@ class test_run(unittest.TestCase):
                     capture_output=True)
                 self.assertNotEqual(ret.returncode, 0)
                 self.assertIn(b"unknown option --bogus", ret.stderr)
+
+                # --cwd, --env and --user override the container's process
+                ret = subprocess.run(
+                    args=[cmd, "exec", "--cwd", "/", "-e", "FOO=baz",
+                          "-e", "BAR=qux", "-u", "123:456", self.container_id,
+                          "sh", "-c", "echo $FOO $BAR; pwd; id -u; id -g"],
+                    capture_output=True)
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(
+                    ret.stdout.decode("utf-8").split(),
+                    ["baz", "qux", "/", "123", "456"])
+                ret = subprocess.run(
+                    args=[cmd, "exec", "-u", "nobody", self.container_id,
+                          "true"],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
             finally:
                 os.kill(pid, 9)
                 stdout.close()

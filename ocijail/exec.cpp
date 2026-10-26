@@ -1,6 +1,8 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <algorithm>
+#include <charconv>
 #include <iostream>
 
 #include "nlohmann/json.hpp"
@@ -46,11 +48,29 @@ exec::exec(main_app& app) : app_(app) {
     sub->add_option("--preserve-fds",
                     preserve_fds_,
                     "Number of additional file descriptors for the container");
+    sub->add_option(
+        "--cwd", cwd_, "Current working directory for the exec process");
+    sub->add_option(
+        "--env,-e", env_, "Add an environment variable, in the form KEY=VALUE");
+    sub->add_option("--user,-u",
+                    user_,
+                    "User and optionally group to run as, in the form "
+                    "UID[:GID]");
 
     sub->final_callback([this, sub] {
         args_ = sub->remaining();
         run();
     });
+}
+
+static int parse_id(const std::string& s) {
+    int id;
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), id);
+    if (s.empty() || ec != std::errc{} || ptr != s.data() + s.size() ||
+        id < 0) {
+        throw std::runtime_error("exec: invalid user " + s);
+    }
+    return id;
 }
 
 void exec::run() {
@@ -68,6 +88,10 @@ void exec::run() {
             throw std::runtime_error(
                 "exec: cannot use both --process and a command");
         }
+        if (cwd_ || !env_.empty() || user_) {
+            throw std::runtime_error(
+                "exec: --cwd, --env and --user cannot be used with --process");
+        }
         std::ifstream{*process_} >> process_json;
     } else {
         if (args_.empty()) {
@@ -83,6 +107,40 @@ void exec::run() {
         process_json["args"] = args_;
         process_json.erase("terminal");
         process_json.erase("consoleSize");
+        if (cwd_) {
+            process_json["cwd"] = *cwd_;
+        }
+        if (!env_.empty()) {
+            if (!process_json["env"].is_array()) {
+                process_json["env"] = json::array();
+            }
+            auto& env = process_json["env"];
+            for (auto& var : env_) {
+                // Replace any existing value for this variable.
+                auto key = var.substr(0, var.find('=') + 1);
+                auto it = std::find_if(env.begin(), env.end(), [&](auto& v) {
+                    return v.is_string() &&
+                           v.template get<std::string>().starts_with(key);
+                });
+                if (it != env.end()) {
+                    *it = var;
+                } else {
+                    env.push_back(var);
+                }
+            }
+        }
+        if (user_) {
+            auto pos = user_->find(':');
+            auto& user = process_json["user"];
+            if (!user.is_object()) {
+                user = json::object();
+            }
+            user["uid"] = parse_id(user_->substr(0, pos));
+            user["gid"] = pos == std::string::npos
+                              ? 0
+                              : parse_id(user_->substr(pos + 1));
+            user.erase("additionalGids");
+        }
     }
     if (tty_) {
         process_json["terminal"] = *tty_;
