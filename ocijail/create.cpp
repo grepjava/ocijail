@@ -16,6 +16,7 @@
 #include "ocijail/jail.h"
 #include "ocijail/mount.h"
 #include "ocijail/process.h"
+#include "ocijail/rctl.h"
 #include "ocijail/tty.h"
 
 namespace fs = std::filesystem;
@@ -301,13 +302,17 @@ void create::run() {
         }
     }
 
+    // Resource limits, which are enforced with rctl
+    resource_limits limits;
+    if (config.contains("linux") && config["linux"].is_object() &&
+        config["linux"].contains("resources")) {
+        limits = resource_limits::parse(config["linux"]["resources"]);
+    }
+
     // Create a jail config from the OCI config
     jail::config jconf;
-    if (parent_jail) {
-        jconf.set("name", *parent_jail + "." + id_);
-    } else {
-        jconf.set("name", id_);
-    }
+    auto jail_name = parent_jail ? *parent_jail + "." + id_ : id_;
+    jconf.set("name", jail_name);
     jconf.set("persist");
     jconf.set("enforce_statfs", 1u);
     jconf.set("allow.raw_sockets");
@@ -464,6 +469,12 @@ void create::run() {
     }
 
     auto j = jail::create(jconf);
+    try {
+        set_resource_limits(jail_name, limits);
+    } catch (const std::exception&) {
+        j.remove();
+        throw;
+    }
 
     // We record the container state including the bundle config. We
     // need to create the start fifo before forking - this will be
@@ -509,6 +520,7 @@ void create::run() {
             // If the create failed, we need to clean up: unmount the volumes and
             // delete the state.
             j.remove();
+            remove_resource_limits(jail_name);
             if (config_mounts.is_array()) {
                 unmount_volumes(app_, state, root_path, config_mounts);
             }

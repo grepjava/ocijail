@@ -70,6 +70,33 @@ class test_create(unittest.TestCase):
         c["ociVersion"] = "1.4.0"
         self.check_bad_config(c)
 
+    def test_linux_resources(self):
+        c = self.config()
+        for resources in [
+            {},
+            {"memory": {"limit": 1048576, "swap": -1}},
+            {"memory": {"limit": 1048576, "swap": 2097152}},
+            {"pids": {"limit": 100}},
+            {"cpu": {"quota": 50000, "period": 100000, "shares": 1024}},
+            {"blockIO": {"throttleReadBpsDevice": [
+                {"major": 8, "minor": 0, "rate": 1000}]}},
+            # Parts with no FreeBSD equivalent are ignored
+            {"devices": [{"allow": False, "access": "rwm"}]},
+        ]:
+            c["linux"] = {"resources": resources}
+            self.check_good_config(c)
+        for resources in [
+            [],
+            {"memory": {"limit": "1m"}},
+            {"memory": {"limit": 2097152, "swap": 1048576}},
+            {"pids": {"limit": 1.5}},
+            {"cpu": {"period": -1}},
+            {"blockIO": {"throttleReadBpsDevice": {"rate": 1}}},
+            {"blockIO": {"throttleReadBpsDevice": [{"major": 8, "minor": 0}]}},
+        ]:
+            c["linux"] = {"resources": resources}
+            self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()

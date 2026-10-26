@@ -188,6 +188,85 @@ class test_run(unittest.TestCase):
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
 
+    def rctl_rules(self):
+        out = subprocess.run(
+            args=["rctl", f"jail:{self.container_id}"],
+            capture_output=True).stdout.decode("utf-8")
+        prefix = f"jail:{self.container_id}:"
+        return sorted(r[len(prefix):] for r in out.split() if r.startswith(prefix))
+
+    def test_resource_limits(self):
+        # Too many processes fail to fork
+        c = self.config()
+        c["process"]["args"] = [
+            "sh", "-c", "for i in 1 2 3 4 5 6 7 8; do sleep 1 & done; wait"]
+        c["linux"] = {"resources": {"pids": {"limit": 4}}}
+        ret, _, err = self.run_with_config(c)
+        self.assertIn("Cannot fork", err)
+        self.delete()
+
+        # A process which takes the container over its memory limit is
+        # killed
+        c = self.config()
+        c["process"]["args"] = [
+            sys.executable, "-c",
+            "import time; a = bytearray(200 * 1024 * 1024); time.sleep(3)"]
+        c["linux"] = {"resources": {"memory": {"limit": 64 * 1024 * 1024}}}
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            self.start()
+            stdout.close()
+            stderr.close()
+            _, status = os.waitpid(pid, os.WEXITED)
+            self.assertTrue(os.WIFSIGNALED(status))
+            self.assertEqual(os.WTERMSIG(status), 9)
+        self.delete()
+        # but can use less
+        c["process"]["args"] = [
+            sys.executable, "-c",
+            "import time; a = bytearray(16 * 1024 * 1024); time.sleep(3)"]
+        ret, _, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.delete()
+
+        # The other limits become rules, which are removed with the container
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        c["linux"] = {"resources": {
+            "memory": {"limit": 64 * 1024 * 1024, "swap": 96 * 1024 * 1024},
+            "cpu": {"quota": 50000, "period": 100000},
+            "blockIO": {
+                "throttleReadBpsDevice": [
+                    {"major": 0, "minor": 1, "rate": 2000000},
+                    {"major": 0, "minor": 2, "rate": 1000000},
+                ],
+                "throttleWriteIOPSDevice": [
+                    {"major": 0, "minor": 1, "rate": 100},
+                ],
+            },
+        }}
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            try:
+                self.assertEqual(self.rctl_rules(), [
+                    "memoryuse:sigkill=67108864",
+                    "pcpu:deny=50",
+                    "readbps:throttle=1000000",
+                    "swapuse:deny=33554432",
+                    "writeiops:throttle=100",
+                ])
+            finally:
+                os.kill(pid, 9)
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
+                self.delete()
+        self.assertEqual(self.rctl_rules(), [])
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

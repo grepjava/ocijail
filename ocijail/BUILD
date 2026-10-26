@@ -29,6 +29,8 @@ cc_binary(
         "mount.h",
         "process.cpp",
         "process.h",
+        "rctl.cpp",
+        "rctl.h",
         "start.cpp",
         "start.h",
         "state.cpp",

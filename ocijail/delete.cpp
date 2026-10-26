@@ -9,6 +9,7 @@
 #include "hook.h"
 #include "jail.h"
 #include "mount.h"
+#include "rctl.h"
 
 namespace fs = std::filesystem;
 
@@ -71,6 +72,13 @@ void delete_::run() {
 
     auto j = jail::find(int(state["jid"]));
     j.remove();
+    // rctl rules outlive the jail, so remove them so that they don't apply
+    // to a later container with the same name.
+    std::string jail_name{id_};
+    if (state.contains("parent_jail")) {
+        jail_name = state["parent_jail"].get<std::string>() + "." + jail_name;
+    }
+    remove_resource_limits(jail_name);
 
     bool root_readonly = false;
     if (state.contains("root_readonly")) {
