@@ -503,6 +503,69 @@ class test_run(unittest.TestCase):
             ret, _, _ = self.run_with_config(c)
             self.assertEqual(ret, 42)
 
+    def hook(self, *args, timeout=None):
+        h = {"path": "/bin/sh", "args": ["-c", *args]}
+        if timeout:
+            h["timeout"] = timeout
+        return h
+
+    def check_no_container(self):
+        ret = subprocess.run(
+            args=[cmd, "state", self.container_id], capture_output=True)
+        self.assertNotEqual(ret.returncode, 0)
+        ret = subprocess.run(
+            args=["jls", "-j", self.container_id], capture_output=True)
+        self.assertNotEqual(ret.returncode, 0)
+
+    def test_hook_failure(self):
+        # A failing createRuntime or createContainer hook fails create and
+        # removes the container
+        for phase in ["createRuntime", "createContainer"]:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            c["hooks"] = {phase: [self.hook("exit 3")]}
+            ret, _, _ = self.run_with_config(c, expected_ret=1)
+            self.assertEqual(ret, 1)
+            self.check_no_container()
+
+        # A failing startContainer hook stops the container before its
+        # process runs
+        with tempfile.TemporaryDirectory() as scratch:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", f"touch {scratch}/ran"]
+            c["hooks"] = {"startContainer": [self.hook("exit 3")]}
+            ret, _, _ = self.run_with_config(c)
+            self.assertNotEqual(ret, 0)
+            self.assertFalse(os.path.exists(f"{scratch}/ran"))
+            self.delete()
+
+        # Failing poststart and poststop hooks are only warnings
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 42"]
+        c["hooks"] = {
+            "poststart": [self.hook("exit 3")],
+            "poststop": [self.hook("exit 3")],
+        }
+        ret, _, _ = self.run_with_config(c)
+        self.assertEqual(ret, 42)
+        self.delete()
+        self.check_no_container()
+
+    def test_hook_timeout(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        c["hooks"] = {"createRuntime": [self.hook("sleep 30", timeout=1)]}
+        start = time.monotonic()
+        ret, _, _ = self.run_with_config(c, expected_ret=1)
+        self.assertEqual(ret, 1)
+        self.assertLess(time.monotonic() - start, 10)
+        self.check_no_container()
+
+        # A hook which finishes in time succeeds
+        c["hooks"] = {"createRuntime": [self.hook("exit 0", timeout=10)]}
+        ret, _, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+
     def test_hook_poststop(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
