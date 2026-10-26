@@ -733,6 +733,20 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out, "enabled\n")
 
+    def test_no_new_privileges(self):
+        c = self.config()
+        c["process"]["args"] = [
+            "sh", "-c", "proccontrol -m nonewprivs -q -p $$; exit 0"]
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "disabled\n")
+        self.delete()
+
+        c["process"]["noNewPrivileges"] = True
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "enabled\n")
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
@@ -1200,6 +1214,12 @@ class test_run(unittest.TestCase):
                 self.assertEqual(
                     ret.stdout.decode("utf-8").split(),
                     ["baz", "qux", "/", "123", "456"])
+                ret = subprocess.run(
+                    args=[cmd, "exec", "--no-new-privs", self.container_id,
+                          "sh", "-c", "proccontrol -m nonewprivs -q -p $$; exit 0"],
+                    capture_output=True)
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                self.assertEqual(ret.stdout, b"enabled\n")
                 ret = subprocess.run(
                     args=[cmd, "exec", "-u", "nobody", self.container_id,
                           "true"],

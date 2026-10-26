@@ -4,6 +4,7 @@
 #include <sched.h>
 #include <sys/resource.h>
 #include <sys/rtprio.h>
+#include <sys/procctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <filesystem>
@@ -290,6 +291,13 @@ process::process(const json& process_json,
                 "non-negative integers");
         }
         console_size_ = {size["height"], size["width"]};
+    }
+
+    if (process_json.contains("noNewPrivileges")) {
+        if (!process_json["noNewPrivileges"].is_boolean()) {
+            malformed_config("process.noNewPrivileges must be a boolean");
+        }
+        no_new_privileges_ = process_json["noNewPrivileges"];
     }
     if (terminal_) {
         if (detach_) {

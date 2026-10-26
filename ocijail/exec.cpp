@@ -56,6 +56,10 @@ exec::exec(main_app& app) : app_(app) {
                     user_,
                     "User and optionally group to run as, in the form "
                     "UID[:GID]");
+    sub->add_flag("--no-new-privs",
+                  no_new_privs_,
+                  "Stop setuid and setgid executables from gaining "
+                  "privileges");
 
     sub->final_callback([this, sub] {
         args_ = sub->remaining();
@@ -144,6 +148,9 @@ void exec::run() {
     }
     if (tty_) {
         process_json["terminal"] = *tty_;
+    }
+    if (no_new_privs_) {
+        process_json["noNewPrivileges"] = true;
     }
     process proc{process_json, console_socket_, detach_, preserve_fds_};
 
