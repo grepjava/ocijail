@@ -79,13 +79,13 @@ void delete_::delete_container(main_app& app,
     }
 
     if (auto j = state.find_jail()) {
-        return_interfaces_from_vnet(app_, state);
+        return_interfaces_from_vnet(app, state);
         j->remove();
     }
-    remove_interface_aliases(app_, state);
+    remove_interface_aliases(app, state);
     // rctl rules outlive the jail, so remove them so that they don't apply
     // to a later container with the same name.
-    std::string jail_name{id_};
+    std::string jail_name{id};
     if (state.contains("parent_jail")) {
         jail_name = state["parent_jail"].get<std::string>() + "." + jail_name;
     }
@@ -110,7 +110,7 @@ void delete_::delete_container(main_app& app,
         unmount_volumes(app, state, root_path, state["config"]["mounts"]);
     }
     if (root_readonly) {
-        unmount_root(app_, root_path);
+        unmount_root(app, root_path);
     }
 
     hook::run_hooks(app, state["config"]["hooks"], "poststop", state);
