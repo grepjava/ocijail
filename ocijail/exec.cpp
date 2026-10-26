@@ -186,10 +186,6 @@ void exec::run() {
         auto pid = ::fork();
         if (pid) {
             // Parent process - write to pid file if requested
-            if (pid_file_) {
-                std::ofstream{*pid_file_} << pid;
-            }
-
             // Signal the child to validate that the container process can be
             // found.
             char ch = 1;
@@ -208,6 +204,13 @@ void exec::run() {
                 throw std::system_error{errno,
                                         std::system_category(),
                                         "read from exec create socket"};
+            }
+
+            // Only report the pid once the process is known to be valid:
+            // a caller such as conmon takes a pid file to mean the exec
+            // started.
+            if (status == 0 && pid_file_) {
+                std::ofstream{*pid_file_} << pid;
             }
             ::exit(status);
         } else {
