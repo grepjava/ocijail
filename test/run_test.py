@@ -258,6 +258,33 @@ class test_run(unittest.TestCase):
         finally:
             subprocess.run(["jail", "-r", parent])
 
+    def test_exec_detach_error_logged(self):
+        # A detached exec of a missing command reports the error in the
+        # runtime's log, where podman reads it from
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            stdout.close()
+            stderr.close()
+            process_path = os.path.join(bundle_dir, "process.json")
+            with open(process_path, "w") as f:
+                json.dump({"args": ["no_such_command"], "cwd": "/"}, f)
+            log_path = os.path.join(bundle_dir, "log")
+            ret = subprocess.run(
+                args=[cmd, "--log", log_path, "--log-format", "json",
+                      "exec", "--detach", "--process", process_path,
+                      self.container_id],
+                stderr=subprocess.DEVNULL)
+            self.assertNotEqual(ret.returncode, 0)
+            with open(log_path, "r") as f:
+                log = f.read()
+            self.assertIn("'no_such_command' not found in $PATH", log)
+            self.start()
+            os.waitpid(pid, os.WEXITED)
+
     def test_process_user_umask(self):
         c = self.config()
         # If process.user.umask is set, this should be the value of umask inside

@@ -234,8 +234,9 @@ void exec::run() {
                 // Validate the process executable exists and can be executed
                 proc.validate();
             } catch (const std::exception& e) {
-                std::string_view msg{e.what()};
-                ::write(2, msg.data(), msg.size());
+                // Report it in the log, where the caller looks for runtime
+                // errors (it is copied to stderr as well).
+                app_.log_error(e);
                 status = 1;
             }
 
