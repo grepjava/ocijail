@@ -14,6 +14,7 @@
 #include "ocijail/main.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
+#include "ocijail/update.h"
 
 using namespace ocijail;
 using nlohmann::json;
@@ -31,6 +32,7 @@ int main(int argc, char** argv) {
     state::init(app);
     list::init(app);
     features::init(app);
+    update::init(app);
 
     try {
         app.parse(argc, argv);
