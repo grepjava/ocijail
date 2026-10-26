@@ -130,7 +130,8 @@ which passes all 59 root tests and the user suites.
 
 - Phase 0 infrastructure (CI, crun differential harness,
   runtime-tools). CI is deferred for now.
-- Phase 6: buildah's system tests (podman's are done, see Phase 6).
+- Phase 6: the rest of buildah's `bud.bats`, which needs a machine
+  with more memory (see Phase 6).
 
 **Decided against, with reasons:**
 
@@ -391,7 +392,8 @@ in `features`.*
 
 ## Phase 6: Ecosystem validation
 
-**Status:** podman done (2026-10-26); buildah not started.
+**Status:** podman done; buildah done except the end of `bud.bats`
+(2026-10-26).
 
 podman 5.8.9's system tests (`test/system`, 17 files: basic, info, run,
 sig-proxy, logs, ps, start, stop, rm, exec, pause, top, kill, volumes,
@@ -444,7 +446,29 @@ runtime ones:
 Two ocijail bugs found (see Progress): `children-max` and
 `exec-error-log`.
 
-- Run buildah's system tests the same way.
+buildah 1.43.5's tests (`tests/`, run from source against the installed
+buildah; the helpers need Go 1.26 with `-tags cni` and GNU coreutils
+and findutils first in `PATH`) were run the same way, with the
+FreeBSD test image served from the tests' image cache as `alpine`,
+`ubuntu` and `busybox`:
+
+| file | ocijail 0.6.0 | `next` |
+|---|---|---|
+| `basic.bats` | — | 8 of 8 |
+| `run.bats` (`buildah run`) | 21 of 41 | 21 of 41, the same tests |
+| `bud.bats` (`RUN` steps) | 128 of the first 203 | 137 of the first 216 |
+
+`bud.bats` didn't finish within an hour with either runtime; over the
+203 tests both reached, the results are identical. The `run.bats`
+failures are buildah-on-FreeBSD limits (no overlay, `type=bind` or
+`type=cache` mounts, no capabilities) and Linux userland in the tests
+(`wget`, user `sync`, `/proc`, `/sys`).
+
+`bud.bats` needs more than the test host's 4 GB of memory and swap
+over a long run (the out-of-memory killer fired twice), so finish it
+on a larger machine.
+
+- Finish `bud.bats` on a larger machine.
 - Produce a single parity report (this table, auto-generated from the
   harness) on each release.
 - Keep `sysutils/ocijail` in the FreeBSD ports tree in step with the
