@@ -204,6 +204,17 @@ class test_create(unittest.TestCase):
         c["freebsd"] = {"devices": [{"path": "pf"}]}
         self.check_bad_config(c)
 
+    def test_hostname(self):
+        c = self.config()
+        c["hostname"] = "myhost"
+        c["domainname"] = "example.com"
+        self.check_good_config(c)
+        c["domainname"] = 42
+        self.check_bad_config(c)
+        c = self.config()
+        c["hostname"] = 42
+        self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()

@@ -699,15 +699,29 @@ void create::run() {
             jconf.set("ip6", ip6.value_or(jail::INHERIT));
         }
     }
-    if (!host) {
-        host = config.contains("hostname") ? jail::NEW : jail::INHERIT;
+    for (auto key : {"hostname", "domainname"}) {
+        if (config.contains(key) && !config[key].is_string()) {
+            malformed_config(std::string{key} + " must be a string");
+        }
     }
-    if (config.contains("hostname")) {
+    bool host_names =
+        config.contains("hostname") || config.contains("domainname");
+    if (!host) {
+        host = host_names ? jail::NEW : jail::INHERIT;
+    }
+    if (host_names) {
         if (*host != jail::NEW) {
             throw std::runtime_error(
-                "hostname can only be set if freebsd.jail.host is new");
+                "hostname and domainname can only be set if "
+                "freebsd.jail.host is new");
         }
-        jconf.set("host.hostname", config["hostname"].get<std::string>());
+        if (config.contains("hostname")) {
+            jconf.set("host.hostname", config["hostname"].get<std::string>());
+        }
+        if (config.contains("domainname")) {
+            jconf.set("host.domainname",
+                      config["domainname"].get<std::string>());
+        }
     }
     jconf.set("host", *host);
 

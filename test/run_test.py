@@ -185,6 +185,15 @@ class test_run(unittest.TestCase):
                     args=root_args + ["delete", self.container_id],
                     check=True)
 
+    def test_hostname(self):
+        c = self.config()
+        c["hostname"] = "myhost"
+        c["domainname"] = "example.com"
+        c["process"]["args"] = ["sh", "-c", "hostname; domainname"]
+        ret, out, _ = self.run_with_config(c)
+        self.assertEqual(ret, 0)
+        self.assertEqual(out.split(), ["myhost", "example.com"])
+
     def test_chroot(self):
         with tempfile.TemporaryDirectory() as root_dir:
             shutil.copytree("/rescue", os.path.join(root_dir, "rescue"))
