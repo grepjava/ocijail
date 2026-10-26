@@ -239,6 +239,25 @@ class test_run(unittest.TestCase):
             with open(os.path.join(root_dir, "file"), "r") as f:
                 self.assertEqual(f.read(), "Hello World\n")
 
+    def test_parent_jail_children_max(self):
+        # A parent jail which allows no children has its limit raised to
+        # make room for the container. The parent must allow what the
+        # container's jail is given.
+        parent = f"{self.container_id}_parent"
+        subprocess.run(
+            ["jail", "-c", f"name={parent}", "path=/", "persist",
+             "enforce_statfs=1", "allow.raw_sockets", "children.max=0"],
+            check=True)
+        try:
+            c = self.config()
+            c["annotations"] = {"org.freebsd.parentJail": parent}
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            ret, _, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            self.delete()
+        finally:
+            subprocess.run(["jail", "-r", parent])
+
     def test_process_user_umask(self):
         c = self.config()
         # If process.user.umask is set, this should be the value of umask inside
