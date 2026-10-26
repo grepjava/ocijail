@@ -581,6 +581,43 @@ class test_run(unittest.TestCase):
         self.assertNotIn("inet6 fd00::42 ", lo0())
         self.assertIn("inet 127.0.0.1 ", lo0())
 
+    def test_freebsd_vnet_interfaces(self):
+        # The interfaces are moved into the container's vnet while it exists
+        epair = subprocess.run(
+            args=["ifconfig", "epair", "create"],
+            capture_output=True, check=True).stdout.decode("utf-8").strip()
+        other = epair[:-1] + "b"
+        def host_interfaces():
+            return subprocess.run(
+                args=["ifconfig", "-l"],
+                capture_output=True, check=True).stdout.decode("utf-8").split()
+        try:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", "ifconfig -l; exit 0"]
+            c["freebsd"] = {"jail": {"vnet": "new", "vnetInterfaces": [epair]}}
+            with tempfile.TemporaryDirectory() as bundle_dir:
+                with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                    json.dump(c, f)
+                pid, stdout, stderr = self.create(bundle_dir)
+                try:
+                    self.assertNotIn(epair, host_interfaces())
+                    self.assertIn(other, host_interfaces())
+                    self.start()
+                    out = stdout.read().decode("utf-8")
+                    self.assertIn(epair, out.split())
+                finally:
+                    try:
+                        os.kill(pid, 9)
+                    except ProcessLookupError:
+                        pass
+                    stdout.close()
+                    stderr.close()
+                    os.waitpid(pid, os.WEXITED)
+                    self.delete()
+            self.assertIn(epair, host_interfaces())
+        finally:
+            subprocess.run(args=["ifconfig", epair, "destroy"])
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

@@ -77,6 +77,7 @@ void delete_::delete_container(main_app& app,
     }
 
     if (auto j = state.find_jail()) {
+        return_interfaces_from_vnet(app_, state);
         j->remove();
     }
     remove_interface_aliases(app_, state);
