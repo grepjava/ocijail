@@ -58,7 +58,9 @@ runtime refuses the request with a clear error and reports it accurately in
 | `process.consoleSize` | ✅ | ❌ ignored | ✅ `console-size` |
 | `process.scheduler` | ✅ | ❌ ignored | ✅ `process-scheduler` (FIFO/RR/IDLE/nice) |
 | Linux-only process fields (caps, AppArmor, SELinux, `oomScoreAdj`, `ioPriority`) | ✅ | ⚠️ silently ignored | ✅ rejected unless empty (`linux-process-fields`) |
-| Resource limits, `update`, `events`/stats | cgroups | ❌ | ⏳ Phase 5 (rctl; needs racct and a host reboot) |
+| Resource limits (`linux.resources` → rctl) | cgroups | ❌ | ✅ `resource-limits` |
+| `update` | ✅ (cgroups) | ❌ | ✅ `update` (on `resource-limits`) |
+| `events` / stats | runc only | ❌ | ✅ `events` (on `resource-limits`) |
 | `pause` / `resume` | ✅ (freezer) | ❌ | ✅ `pause-resume` (on `kill-all`): SIGSTOP sweep until every process has stopped |
 | `checkpoint` / `restore` | ✅ (CRIU) | ❌ | ➖ out of scope (no CRIU) |
 | seccomp, user ns, idmapped mounts, cgroups, mount propagation, rootless | ✅ | ❌ | ➖ out of scope (no FreeBSD equivalent) |
@@ -110,6 +112,9 @@ them and to dfr/ocijail#35.
 | 3 | `freebsd.jail` section and `ociVersion` 1.3.0 in `spec` output | `spec-freebsd` (on `spec`) | pushed |
 | 1 | `exec --no-new-privs` | `exec-no-new-privs` (on `exec-flags`, with `no-new-privs` cherry-picked) | pushed |
 | 5 | `pause`/`resume`; `paused` handled by `kill`, `exec`, `delete --force` | `pause-resume` (on `kill-all`) | pushed |
+| 5 | `linux.resources` → rctl rules; removed on `delete` | `resource-limits` | pushed |
+| 5 | `update` (crun's flags and `-r`) | `update` (on `resource-limits`) | pushed |
+| 5 | `events` / `events --stats` (runc's stats shape) | `events` (on `resource-limits`) | pushed |
 | 4 | `rlimits` | `process-rlimits` | pushed |
 | 4 | `noNewPrivileges` | `no-new-privs` | pushed |
 | 4 | `consoleSize` | `console-size` | pushed |
@@ -118,8 +123,6 @@ them and to dfr/ocijail#35.
 
 **Remaining:**
 
-- Phase 5: everything except `pause`/`resume`. The test host has `kern.racct.enable=0`, so it
-  needs `kern.racct.enable=1` in `/boot/loader.conf` and a reboot first.
 - Phase 0 infrastructure (CI, crun differential harness,
   runtime-tools) and Phase 6. CI is deferred for now.
 
@@ -334,7 +337,12 @@ tests for each field.
 
 ## Phase 5: Resource control (the cgroups counterpart)
 
-**Status:** `pause`/`resume` are done (`pause-resume`). rctl, `update` and `events` need racct enabled on the test host, which means a reboot.
+**Status:** done. The test host now has `kern.racct.enable=1` (set 2026-10-26).
+
+- **podman doesn't send limits on FreeBSD.** podman 5.8.9 drops `--memory`, `--memory-swap`, `--cpus` and `--device-read-bps` without sending them to the runtime; there is no `linux` section in its config. Only `io.podman.annotations.pids-limit` survives, as an annotation. ocijail enforces `linux.resources` as crun does, for any tool that sends it, but podman's limits won't take effect until podman passes them.
+- **Mapping.** `memory.limit` → `memoryuse:sigkill`, because `memoryuse:deny` doesn't stop allocation (memory is only counted once it is resident) and `vmemoryuse:deny` would break runtimes that reserve large address spaces. `memory.swap` → `swapuse:deny` on the difference. `pids.limit` → `maxproc:deny`. `cpu.quota`/`period` → `pcpu:deny` (percent of one CPU). Block I/O throttles → jail-wide `readbps`/`writebps`/`readiops`/`writeiops` throttles at the lowest rate given.
+- **rctl rules are kept by jail name and outlive the jail,** so `delete` removes them.
+- `pause`/`resume` (`pause-resume`) use a SIGSTOP sweep.
 
 *Goal: give `update`, `events --stats`, `pause` and `resume` real
 implementations backed by rctl/racct. This requires the
