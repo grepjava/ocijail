@@ -747,6 +747,76 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out, "enabled\n")
 
+    def container_state(self):
+        ret = subprocess.run(
+            args=[cmd, "state", self.container_id], capture_output=True)
+        if ret.returncode != 0:
+            return None
+        return json.loads(ret.stdout)
+
+    def jail_process_states(self):
+        out = subprocess.run(
+            args=["ps", "-J", self.container_id, "-o", "pid=", "-o", "state="],
+            capture_output=True).stdout.decode("utf-8")
+        return [line.split()[1] for line in out.splitlines() if line.strip()]
+
+    def test_pause_resume(self):
+        # The container forks continuously, so pause has to catch the new
+        # processes too
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "while :; do /bin/sh -c true; done"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            try:
+                self.start()
+                time.sleep(0.5)
+                ret = subprocess.run(args=[cmd, "pause", self.container_id])
+                self.assertEqual(ret.returncode, 0)
+                self.assertEqual(self.container_state()["status"], "paused")
+                states = self.jail_process_states()
+                self.assertTrue(states)
+                self.assertTrue(
+                    all(s.startswith(("T", "Z")) for s in states), states)
+                # Nothing runs while paused
+                time.sleep(0.5)
+                self.assertEqual(len(self.jail_process_states()), len(states))
+
+                # Pausing twice fails, as does exec or delete without --force
+                ret = subprocess.run(args=[cmd, "pause", self.container_id])
+                self.assertNotEqual(ret.returncode, 0)
+                ret = subprocess.run(
+                    args=[cmd, "exec", self.container_id, "true"],
+                    capture_output=True)
+                self.assertNotEqual(ret.returncode, 0)
+                ret = subprocess.run(args=[cmd, "delete", self.container_id])
+                self.assertNotEqual(ret.returncode, 0)
+
+                ret = subprocess.run(args=[cmd, "resume", self.container_id])
+                self.assertEqual(ret.returncode, 0)
+                self.assertEqual(self.container_state()["status"], "running")
+                time.sleep(0.2)
+                self.assertFalse(
+                    all(s.startswith("T") for s in self.jail_process_states()))
+                ret = subprocess.run(args=[cmd, "resume", self.container_id])
+                self.assertNotEqual(ret.returncode, 0)
+
+                # A paused container can be deleted with --force
+                ret = subprocess.run(args=[cmd, "pause", self.container_id])
+                self.assertEqual(ret.returncode, 0)
+                ret = subprocess.run(
+                    args=[cmd, "delete", "--force", self.container_id])
+                self.assertEqual(ret.returncode, 0)
+            finally:
+                try:
+                    os.kill(pid, 9)
+                except ProcessLookupError:
+                    pass
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

@@ -29,6 +29,8 @@ cc_binary(
         "mount.h",
         "net.cpp",
         "net.h",
+        "pause.cpp",
+        "pause.h",
         "process.cpp",
         "process.h",
         "ps.cpp",

@@ -66,7 +66,8 @@ void delete_::delete_container(main_app& app,
         // Nothing to do here
     } else if (state["status"] == "created") {
         ::kill(state["pid"], SIGKILL);
-    } else if (state["status"] == "running" && force) {
+    } else if ((state["status"] == "running" || state["status"] == "paused") &&
+               force) {
         ::kill(state["pid"], SIGKILL);
     } else {
         std::stringstream ss;

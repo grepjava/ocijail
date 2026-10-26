@@ -164,6 +164,9 @@ void exec::run() {
     state.load();
     state.check_status();
 
+    if (state["status"] == "paused") {
+        throw std::runtime_error("exec: container " + id_ + " is paused");
+    }
     auto j = state.find_jail();
     if (!j || (state["status"] != "created" && state["status"] != "running")) {
         throw std::runtime_error("exec: container " + id_ + " is not running");

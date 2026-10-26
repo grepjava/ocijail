@@ -16,6 +16,7 @@
 #include "ocijail/main.h"
 #include "ocijail/ps.h"
 #include "ocijail/spec.h"
+#include "ocijail/pause.h"
 #include "ocijail/start.h"
 #include "ocijail/state.h"
 
@@ -37,6 +38,7 @@ int main(int argc, char** argv) {
     ps::init(app);
     features::init(app);
     spec::init(app);
+    pause::init(app);
 
     try {
         app.parse(argc, argv);
@@ -198,7 +200,8 @@ void runtime_state::check_status() {
         state_["status"] = "stopped";
         save();
     }
-    if (state_["status"] == "created" || state_["status"] == "running") {
+    if (state_["status"] == "created" || state_["status"] == "running" ||
+        state_["status"] == "paused") {
         // Without its jail the container has stopped. If the process has
         // exited, its pid may have been reused by some unrelated process so
         // compare start times as well, if known.
