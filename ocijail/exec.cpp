@@ -24,9 +24,11 @@ exec::exec(main_app& app) : app_(app) {
         "exec", "Execute a command in the container with the given id");
     sub->add_option("container-id", id_, "Unique identifier for the exec")
         ->required();
+    // Anything after the container id is the command to execute, including
+    // arguments which look like options.
+    sub->prefix_command();
     sub->add_option(
            "--process", process_, "Path to a file containing the process json")
-        ->required()
         ->check(CLI::ExistingPath);
     sub->add_option(
            "--console-socket",
@@ -45,12 +47,43 @@ exec::exec(main_app& app) : app_(app) {
                     preserve_fds_,
                     "Number of additional file descriptors for the container");
 
-    sub->final_callback([this] { run(); });
+    sub->final_callback([this, sub] {
+        args_ = sub->remaining();
+        run();
+    });
 }
 
 void exec::run() {
+    // The parser leaves unrecognized options in the command instead of
+    // reporting them, so check for them here.
+    for (auto& arg : {id_, args_.empty() ? std::string{} : args_[0]}) {
+        if (arg.starts_with("-")) {
+            throw std::runtime_error("exec: unknown option " + arg);
+        }
+    }
+
     json process_json;
-    std::ifstream{process_} >> process_json;
+    if (process_) {
+        if (!args_.empty()) {
+            throw std::runtime_error(
+                "exec: cannot use both --process and a command");
+        }
+        std::ifstream{*process_} >> process_json;
+    } else {
+        if (args_.empty()) {
+            throw std::runtime_error(
+                "exec: either --process or a command must be given");
+        }
+        // As with crun, start from the container's process, replacing its
+        // arguments with the given command.
+        auto state = app_.get_runtime_state(id_);
+        auto lk = state.lock();
+        state.load();
+        process_json = state["config"]["process"];
+        process_json["args"] = args_;
+        process_json.erase("terminal");
+        process_json.erase("consoleSize");
+    }
     if (tty_) {
         process_json["terminal"] = *tty_;
     }

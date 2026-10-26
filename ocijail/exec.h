@@ -15,7 +15,8 @@ struct exec {
 
     main_app& app_;
     std::string id_;
-    std::filesystem::path process_;
+    std::optional<std::filesystem::path> process_;
+    std::vector<std::string> args_;
     std::optional<std::filesystem::path> console_socket_;
     std::optional<std::filesystem::path> pid_file_;
     std::optional<bool> tty_;
