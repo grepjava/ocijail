@@ -1,12 +1,16 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pwd.h>
 #include <sys/mount.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <charconv>
+#include <ctime>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
@@ -71,6 +75,24 @@ oci_version parse_version(std::string ociver) {
         }
     }
     return oci_version{nums[0], nums[1], nums[2]};
+}
+
+// The creation time in RFC 3339 format with microseconds, as crun records it.
+std::string created_timestamp() {
+    struct ::timeval tv;
+    struct std::tm now;
+    gettimeofday(&tv, nullptr);
+    gmtime_r(&tv.tv_sec, &now);
+    std::stringstream ss;
+    ss << std::put_time(&now, "%Y-%m-%dT%H:%M:%S") << "." << std::setw(6)
+       << std::setfill('0') << tv.tv_usec << "Z";
+    return ss.str();
+}
+
+// The name of the user creating the container, or "" if it has none.
+std::string owner_name() {
+    auto pw = ::getpwuid(::geteuid());
+    return pw ? pw->pw_name : "";
 }
 
 }  // namespace
@@ -422,6 +444,8 @@ void create::run() {
     state["bundle"] = bundle_path_;
     state["config"] = config;
     state["status"] = "created";
+    state["created"] = created_timestamp();
+    state["owner"] = owner_name();
     if (parent_jail) {
         state["parent_jail"] = *parent_jail;
     }

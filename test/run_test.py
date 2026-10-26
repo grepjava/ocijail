@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 import array
+import datetime
 import io
 import json
 import os
@@ -217,6 +218,36 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out.strip(), "0011")
         os.umask(old_umask)
+
+    def test_state_fields(self):
+        c = self.config()
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            before = datetime.datetime.now(datetime.timezone.utc)
+            pid, stdout, stderr = self.create(bundle_dir)
+            after = datetime.datetime.now(datetime.timezone.utc)
+            try:
+                ret = subprocess.run(
+                    args=[cmd, "state", self.container_id],
+                    capture_output=True)
+                self.assertEqual(ret.returncode, 0, ret.stderr)
+                state = json.loads(ret.stdout)
+                self.assertEqual(state["rootfs"], "/")
+                self.assertEqual(state["owner"], "root")
+                self.assertRegex(
+                    state["created"],
+                    r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
+                created = datetime.datetime.strptime(
+                    state["created"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+                        tzinfo=datetime.timezone.utc)
+                self.assertTrue(before <= created <= after)
+            finally:
+                os.kill(pid, 9)
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
 
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
