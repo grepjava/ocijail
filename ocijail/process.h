@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sys/resource.h>
+
 #include "nlohmann/json.hpp"
 
 #include "ocijail/main.h"
@@ -30,6 +32,7 @@ struct process {
 
    private:
     void reset_signals();
+    void set_rlimits();
     void set_uid_gid();
 
     std::optional<std::filesystem::path> console_socket_;
@@ -44,6 +47,8 @@ struct process {
     uid_t uid_;
     gid_t gid_;
     std::optional<mode_t> umask_;
+    // Resource, soft limit, hard limit
+    std::vector<std::tuple<int, rlim_t, rlim_t>> rlimits_;
     bool terminal_{false};
 };
 
