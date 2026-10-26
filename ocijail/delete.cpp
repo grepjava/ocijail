@@ -87,7 +87,13 @@ void delete_::delete_container(main_app& app,
     if (root_readonly) {
         root_path = fs::path{state["readonly_root_path"]};
     }
-    if (state["config"].contains("mounts") &&
+    // State saved by older versions doesn't record whether the volumes were
+    // mounted, but they always were.
+    bool volumes_mounted = true;
+    if (state.contains("volumes_mounted")) {
+        volumes_mounted = state["volumes_mounted"];
+    }
+    if (volumes_mounted && state["config"].contains("mounts") &&
         !state["config"]["mounts"].is_null()) {
         unmount_volumes(app, state, root_path, state["config"]["mounts"]);
     }
