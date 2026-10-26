@@ -137,6 +137,49 @@ class test_create(unittest.TestCase):
                 os.path.exists(os.path.join(bundle_dir, "other.json")))
             self.assertNotEqual(spec("--bundle", bundle_dir, "--rootless"), 0)
 
+    def test_freebsd_jail(self):
+        c = self.config()
+        for jail in [
+            {},
+            {"host": "inherit", "vnet": "new", "sysvmsg": "disable",
+             "sysvsem": "new", "sysvshm": "inherit", "enforceStatfs": 0},
+            {"ip4": "disable", "ip6": "inherit"},
+            {"ip4Addr": ["10.0.0.1", "10.0.0.2"], "ip6Addr": ["fd00::1"]},
+            {"allow": {"setHostname": True, "rawSockets": False,
+                       "chflags": True, "quotas": False, "socketAf": True,
+                       "mlock": True, "reservedPorts": True, "suser": False,
+                       "mount": ["tmpfs", "nullfs"]}},
+        ]:
+            c["freebsd"] = {"jail": jail}
+            self.check_good_config(c)
+        for jail in [
+            [],
+            {"host": "disable"},
+            {"vnet": "disable"},
+            {"ip4": "bogus"},
+            {"ip4Addr": "10.0.0.1"},
+            {"ip4Addr": ["bogus"]},
+            {"ip4": "inherit", "ip4Addr": ["10.0.0.1"]},
+            {"vnet": "new", "ip4Addr": ["10.0.0.1"]},
+            {"enforceStatfs": 3},
+            {"parent": 1},
+            {"allow": {"bogus": True}},
+            {"allow": {"mlock": "true"}},
+            {"allow": {"mount": "tmpfs"}},
+            {"interface": "lo0"},
+            {"vnetInterfaces": ["em1"]},
+        ]:
+            c["freebsd"] = {"jail": jail}
+            self.check_bad_config(c)
+
+        # A hostname needs a new host
+        c = self.config()
+        c["hostname"] = "foo"
+        c["freebsd"] = {"jail": {"host": "inherit"}}
+        self.check_bad_config(c)
+        c["freebsd"] = {"jail": {"host": "new"}}
+        self.check_good_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()
