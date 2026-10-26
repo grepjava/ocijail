@@ -237,6 +237,13 @@ class test_create(unittest.TestCase):
         c["process"]["rlimits"] = [{"type": "RLIMIT_BOGUS", "soft": 1, "hard": 1}]
         self.check_bad_config(c)
 
+    def test_process_no_new_privileges(self):
+        c = self.config()
+        c["process"]["noNewPrivileges"] = True
+        self.check_good_config(c)
+        c["process"]["noNewPrivileges"] = "true"
+        self.check_bad_config(c)
+
     def test_process(self):
         # process must be present
         c = self.config()

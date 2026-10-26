@@ -50,6 +50,7 @@ struct process {
     // Resource, soft limit, hard limit
     std::vector<std::tuple<int, rlim_t, rlim_t>> rlimits_;
     bool terminal_{false};
+    bool no_new_privileges_{false};
 };
 
 }  // namespace ocijail
