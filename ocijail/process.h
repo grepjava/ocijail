@@ -66,7 +66,6 @@ struct process {
     };
     static constexpr int SCHED_IDLE = -1;
     std::optional<scheduler> scheduler_;
-    bool no_new_privileges_{false};
 };
 
 }  // namespace ocijail

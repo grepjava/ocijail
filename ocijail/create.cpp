@@ -1,7 +1,6 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <signal.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>

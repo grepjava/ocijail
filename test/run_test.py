@@ -733,27 +733,6 @@ class test_run(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertEqual(out, "enabled\n")
 
-    def test_no_new_privileges(self):
-        c = self.config()
-        c["process"]["args"] = [
-            "sh", "-c", "proccontrol -m nonewprivs -q -p $$; exit 0"]
-        ret, out, _ = self.run_with_config(c)
-        self.assertEqual(ret, 0)
-        self.assertEqual(out, "disabled\n")
-        self.delete()
-
-        c["process"]["noNewPrivileges"] = True
-        ret, out, _ = self.run_with_config(c)
-        self.assertEqual(ret, 0)
-        self.assertEqual(out, "enabled\n")
-
-    def container_state(self):
-        ret = subprocess.run(
-            args=[cmd, "state", self.container_id], capture_output=True)
-        if ret.returncode != 0:
-            return None
-        return json.loads(ret.stdout)
-
     def jail_process_states(self):
         out = subprocess.run(
             args=["ps", "-J", self.container_id, "-o", "pid=", "-o", "state="],
