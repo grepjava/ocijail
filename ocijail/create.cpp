@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pwd.h>
@@ -24,6 +25,7 @@
 #include "ocijail/hook.h"
 #include "ocijail/jail.h"
 #include "ocijail/mount.h"
+#include "ocijail/net.h"
 #include "ocijail/process.h"
 #include "ocijail/start.h"
 #include "ocijail/tty.h"
@@ -279,6 +281,8 @@ void create::run() {
     std::optional<std::string> ip4_addr;
     std::optional<std::string> ip6_addr;
     uint32_t enforce_statfs = 1;
+    // An interface to add the container's addresses to
+    std::optional<std::string> interface;
     // Boolean jail parameters such as allow.mlock
     std::map<std::string, bool> allow_params;
     std::vector<std::string> annotation_allow_params;
@@ -462,11 +466,18 @@ void create::run() {
             }
             enforce_statfs = fj["enforceStatfs"];
         }
-        for (auto key : {"interface", "vnetInterfaces"}) {
-            if (fj.contains(key)) {
-                throw std::runtime_error(std::string{"freebsd.jail."} + key +
-                                         " is not supported");
+        if (fj.contains("interface")) {
+            if (!fj["interface"].is_string()) {
+                malformed_config("freebsd.jail.interface must be a string");
             }
+            interface = fj["interface"];
+            if (::if_nametoindex(interface->c_str()) == 0) {
+                throw std::runtime_error("no such interface " + *interface);
+            }
+        }
+        if (fj.contains("vnetInterfaces")) {
+            throw std::runtime_error(
+                "freebsd.jail.vnetInterfaces is not supported");
         }
         if (fj.contains("allow")) {
             auto& allow = fj["allow"];
@@ -567,7 +578,7 @@ void create::run() {
     }
     if (vnet == jail::NEW) {
         // A vnet jail has its own addresses.
-        if (ip4 || ip6 || ip4_addr || ip6_addr) {
+        if (ip4 || ip6 || ip4_addr || ip6_addr || interface) {
             throw std::runtime_error(
                 "IP address restrictions cannot be used with a new vnet");
         }
@@ -663,6 +674,7 @@ void create::run() {
         if (created_jail) {
             created_jail->remove();
         }
+        remove_interface_aliases(app_, state);
         if (volumes_mounted) {
             unmount_volumes(app_, state, root_path, config_mounts);
         }
@@ -726,6 +738,30 @@ void create::run() {
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, create_sock) < 0) {
             throw std::system_error{
                 errno, std::system_category(), "error creating socket pair"};
+        }
+
+        // Add the container's addresses to the requested interface before
+        // creating the jail which uses them.
+        if (interface) {
+            std::vector<std::pair<int, std::string>> addrs;
+            for (auto [family, list] :
+                 {std::pair{AF_INET, ip4_addr}, std::pair{AF_INET6, ip6_addr}}) {
+                std::string::size_type start = 0;
+                while (list && start < list->size()) {
+                    auto end = list->find(',', start);
+                    auto token = list->substr(start, end == std::string::npos
+                                                         ? std::string::npos
+                                                         : end - start);
+                    if (!token.empty()) {
+                        addrs.emplace_back(family, token);
+                    }
+                    if (end == std::string::npos) {
+                        break;
+                    }
+                    start = end + 1;
+                }
+            }
+            add_interface_aliases(state, *interface, addrs);
         }
 
         created_jail = jail::create(jconf);

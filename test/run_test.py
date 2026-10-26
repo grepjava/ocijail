@@ -546,6 +546,41 @@ class test_run(unittest.TestCase):
         self.assertEqual(p["ip4.addr"], "127.0.0.1")
         self.assertEqual(p["ip6"], "disable")
 
+    def test_freebsd_interface(self):
+        # The container's addresses are added to the interface while it
+        # exists, except for those which were already there
+        def lo0():
+            return subprocess.run(
+                args=["ifconfig", "lo0"],
+                capture_output=True, check=True).stdout.decode("utf-8")
+        c = self.config()
+        c["process"]["args"] = ["sleep", "60"]
+        c["freebsd"] = {"jail": {
+            "interface": "lo0",
+            "ip4Addr": ["127.0.0.42", "127.0.0.1"],
+            "ip6Addr": ["fd00::42"],
+        }}
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            pid, stdout, stderr = self.create(bundle_dir)
+            try:
+                self.assertIn("inet 127.0.0.42 ", lo0())
+                self.assertIn("inet6 fd00::42 ", lo0())
+                out = subprocess.run(
+                    args=["jls", "-j", self.container_id, "ip4.addr"],
+                    capture_output=True, check=True).stdout.decode("utf-8")
+                self.assertEqual(out.strip(), "127.0.0.42,127.0.0.1")
+            finally:
+                os.kill(pid, 9)
+                stdout.close()
+                stderr.close()
+                os.waitpid(pid, os.WEXITED)
+                self.delete()
+        self.assertNotIn("inet 127.0.0.42 ", lo0())
+        self.assertNotIn("inet6 fd00::42 ", lo0())
+        self.assertIn("inet 127.0.0.1 ", lo0())
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()

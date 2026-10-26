@@ -145,6 +145,7 @@ class test_create(unittest.TestCase):
              "sysvsem": "new", "sysvshm": "inherit", "enforceStatfs": 0},
             {"ip4": "disable", "ip6": "inherit"},
             {"ip4Addr": ["10.0.0.1", "10.0.0.2"], "ip6Addr": ["fd00::1"]},
+            {"interface": "lo0", "ip4Addr": ["10.0.0.1"]},
             {"allow": {"setHostname": True, "rawSockets": False,
                        "chflags": True, "quotas": False, "socketAf": True,
                        "mlock": True, "reservedPorts": True, "suser": False,
@@ -166,7 +167,8 @@ class test_create(unittest.TestCase):
             {"allow": {"bogus": True}},
             {"allow": {"mlock": "true"}},
             {"allow": {"mount": "tmpfs"}},
-            {"interface": "lo0"},
+            {"interface": "nosuchif0"},
+            {"interface": "lo0", "vnet": "new"},
             {"vnetInterfaces": ["em1"]},
         ]:
             c["freebsd"] = {"jail": jail}

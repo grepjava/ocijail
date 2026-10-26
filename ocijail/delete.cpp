@@ -9,6 +9,7 @@
 #include "hook.h"
 #include "jail.h"
 #include "mount.h"
+#include "net.h"
 
 namespace fs = std::filesystem;
 
@@ -78,6 +79,7 @@ void delete_::delete_container(main_app& app,
     if (auto j = state.find_jail()) {
         j->remove();
     }
+    remove_interface_aliases(app_, state);
 
     bool root_readonly = false;
     if (state.contains("root_readonly")) {
