@@ -68,10 +68,15 @@ struct jail {
     void _get(config& jconf);
     void _set(config& jconf);
     static std::vector<iovec> get_iovec(config& jconf, std::array<char, 1024>& errbuf);
+    // The kernel's error message, if it gave one, prefixed with ": "
     static std::string get_errmsg(const std::vector<iovec>& jiov) {
         const auto& err = jiov.back();
         auto msg = reinterpret_cast<const char*>(err.iov_base);
-        return std::string{msg, strnlen(msg, 1024)};
+        auto len = strnlen(msg, 1024);
+        if (len == 0) {
+            return "";
+        }
+        return ": " + std::string{msg, len};
     }
 
     int32_t jid_;

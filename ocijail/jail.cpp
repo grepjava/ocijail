@@ -40,7 +40,7 @@ jail jail::create(config& jconf) {
     int32_t jid = jail_set(&jiov[0], jiov.size(), JAIL_CREATE);
     if (jid < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_set: " + get_errmsg(jiov)};
+            errno, std::system_category(), "error calling jail_set" + get_errmsg(jiov)};
     }
     return jail{jid};
 }
@@ -53,7 +53,7 @@ jail jail::find(const std::string& name) {
     int32_t jid = jail_get(&jiov[0], jiov.size(), 0);
     if (jid < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_get: " + get_errmsg(jiov)};
+            errno, std::system_category(), "error calling jail_get" + get_errmsg(jiov)};
     }
     return jail{jid};
 }
@@ -112,7 +112,7 @@ void jail::_get(config& jconf) {
     auto jiov = get_iovec(jconf, errbuf);
     if (jail_get(&jiov[0], jiov.size(), 0) < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_get: " + get_errmsg(jiov)};
+            errno, std::system_category(), "error calling jail_get" + get_errmsg(jiov)};
     }
 }
 
@@ -121,7 +121,7 @@ void jail::_set(config& jconf) {
     auto jiov = get_iovec(jconf, errbuf);
     if (jail_set(&jiov[0], jiov.size(), JAIL_UPDATE) < 0) {
         throw std::system_error{
-            errno, std::system_category(), "error calling jail_set: " + get_errmsg(jiov)};
+            errno, std::system_category(), "error calling jail_set" + get_errmsg(jiov)};
     }
 }
 
@@ -158,6 +158,8 @@ std::vector<iovec> jail::get_iovec(config& jconf, std::array<char, 1024>& errbuf
                                     static_cast<size_t>(p->size())});
         }
     }
+    // The kernel only sets errmsg for some errors.
+    errbuf[0] = '\0';
     jiov.emplace_back(string_to_iovec("errmsg"));
     jiov.emplace_back(reinterpret_cast<void*>(errbuf.data()), errbuf.size());
     

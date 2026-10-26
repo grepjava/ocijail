@@ -430,6 +430,23 @@ class test_run(unittest.TestCase):
         self.delete()
         self.assertFalse(os.path.exists(state_dir))
 
+    def test_jail_error(self):
+        # The kernel gives no message for a hostname which is too long, so
+        # we report just the error.
+        c = self.config()
+        c["hostname"] = "x" * 300
+        c["process"]["args"] = ["sh", "-c", "exit 0"]
+        with tempfile.TemporaryDirectory() as bundle_dir:
+            with open(os.path.join(bundle_dir, "config.json"), "w") as f:
+                json.dump(c, f)
+            ret = subprocess.run(
+                args=[cmd, "create", "--bundle", bundle_dir,
+                      self.container_id],
+                capture_output=True)
+            self.assertNotEqual(ret.returncode, 0)
+            self.assertTrue(ret.stderr.decode("utf-8").endswith(
+                "error calling jail_set: File name too long\n"))
+
     def test_hook_create_runtme(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
