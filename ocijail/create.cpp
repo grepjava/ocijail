@@ -549,6 +549,9 @@ void create::run() {
 
         char status = 0;
         try {
+            // As in crun, the deprecated prestart hooks run just before
+            // createRuntime, which is where the specification places them.
+            hook::run_hooks(app_, config_hooks, "prestart", state);
             hook::run_hooks(app_, config_hooks, "createRuntime", state);
         } catch (const std::exception& e) {
             app_.log_error(e);
