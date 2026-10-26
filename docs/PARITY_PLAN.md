@@ -120,11 +120,17 @@ them and to dfr/ocijail#35.
 | 4 | `consoleSize` | `console-size` | pushed |
 | 4 | `scheduler` | `process-scheduler` | pushed |
 | 4 | reject Linux-only process fields | `linux-process-fields` | pushed |
+| 6 | jail parameter type checks abort with a parent jail (bug, podman pods) | `children-max` | pushed |
+| 6 | detached `exec` of a missing command: error in `--log`, pid file only on success (bug) | `exec-error-log` | pushed |
+
+All of the above are merged on `upstream/main` in the `next` branch,
+which passes all 59 root tests and the user suites.
 
 **Remaining:**
 
 - Phase 0 infrastructure (CI, crun differential harness,
-  runtime-tools) and Phase 6. CI is deferred for now.
+  runtime-tools). CI is deferred for now.
+- Phase 6: buildah's system tests (podman's are done, see Phase 6).
 
 **Decided against, with reasons:**
 
@@ -161,8 +167,15 @@ them and to dfr/ocijail#35.
   so `run` installs a handler before calling `sigwait`.
 - A jail can't use the realtime or idle scheduling classes, so
   `scheduler` is applied before `jail_attach`.
+- `jail::get`/`jail::set` passed an `int32_t` jid and numeric
+  `children.*`/`allow.*` values that `config::set`'s assertions
+  rejected, so any build with assertions aborted on
+  `org.freebsd.parentJail`. Release packages are built without them.
+- A detached `exec` wrote its pid file before checking the command, so
+  conmon took a failed exec as started: podman reported exit status 1
+  instead of 127 (125 for `exec -d`) and kept the exec session.
 
-**Integration notes** (for a `next` branch or merge order):
+**Integration notes** (for the `next` branch or merge order):
 
 - `hook-errors`' test helper uses the old hook argv convention; prepend
   `"sh"` when it is combined with `hook-argv`.
@@ -378,10 +391,60 @@ in `features`.*
 
 ## Phase 6: Ecosystem validation
 
-**Status:** not started. podman 5.8.9 and buildah are installed on the test host.
+**Status:** podman done (2026-10-26); buildah not started.
 
-- Run podman's and buildah's system test suites on FreeBSD with ocijail and
-  triage every failure against the crun baseline.
+podman 5.8.9's system tests (`test/system`, 17 files: basic, info, run,
+sig-proxy, logs, ps, start, stop, rm, exec, pause, top, kill, volumes,
+pod, update, interactive) were run with the released ocijail 0.6.0
+package and with `next`, on podman storage of their own. There is no
+crun on FreeBSD, so 0.6.0 is the baseline.
+
+Running them on FreeBSD needs GNU coreutils and sed first in `PATH`
+(FreeBSD's `timeout -v` reports every exit; `expr` has no `\+`) and a
+FreeBSD stand-in for podman's test image: `freebsd-notoolchain:15.1`
+with podman's `/home/podman` helpers, `sleep inf` and `top` that keep
+running, and `/bin/true`, `/bin/false`, `/bin/printenv`.
+
+| | passed (of 247) |
+|---|---|
+| ocijail 0.6.0 | 158 |
+| `next` | 162 |
+
+Differences:
+
+- `next` passes and 0.6.0 fails: maximum ulimit (`process.rlimits`),
+  `pause`/`unpause` and `unpause --all`, `exec - basic test` and
+  `exec - does not leak session IDs on invalid command` (the
+  `exec-error-log` fix).
+- 0.6.0 passes and `next` fails: `logs --since` and `--until` with
+  k8s-file. podman always stops a FreeBSD container with `kill --all`
+  (there's no pid namespace); 0.6.0 ignores `--all`, `next` signals
+  every process like crun, so the test's `sleep` child is killed too and
+  its shell prints `Terminated`. crun does the same for a container
+  sharing the host's pid namespace.
+
+The failures both share are FreeBSD or environment differences, not
+runtime ones:
+
+- No pid namespace: no pid 1 (`top` expects it; `sleep` as pid 1
+  doesn't ignore SIGTERM, so `stop`'s SIGKILL warning and the
+  `stopping` state never appear).
+- podman on FreeBSD: no journald or cgroups, `update` panics with a nil
+  pointer before calling the runtime, `pod top` and `ps` use Linux `ps`
+  options, `volume create -o type=bind` doesn't check the device.
+- Linux userland in the tests: `/proc/self/status`, GNU `stat -c`,
+  signal 64, busybox `sh` exit status after a trapped signal, lower-case
+  `permission denied`, `ip`, images pulled from quay.io.
+- Mounts: ocijail mounts with `MNT_IGNORE` so that container mounts
+  don't fill the host's `mount` and `df`; inside the jail, plain `mount`
+  then lists only `/` (`mount -v` lists them all). Linux gets both from
+  mount namespaces; a jail shares the host's mount table, so this is a
+  trade-off, not a bug.
+
+Two ocijail bugs found (see Progress): `children-max` and
+`exec-error-log`.
+
+- Run buildah's system tests the same way.
 - Produce a single parity report (this table, auto-generated from the
   harness) on each release.
 - Keep `sysutils/ocijail` in the FreeBSD ports tree in step with the
