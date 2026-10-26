@@ -1,4 +1,6 @@
 #include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pwd.h>
@@ -17,10 +19,12 @@
 #include <unordered_set>
 
 #include "ocijail/create.h"
+#include "ocijail/delete.h"
 #include "ocijail/hook.h"
 #include "ocijail/jail.h"
 #include "ocijail/mount.h"
 #include "ocijail/process.h"
+#include "ocijail/start.h"
 #include "ocijail/tty.h"
 
 namespace fs = std::filesystem;
@@ -100,13 +104,30 @@ std::string owner_name() {
 namespace ocijail {
 
 void create::init(main_app& app) {
-    static create instance{app};
+    static create instance{app, false};
+    static create run_instance{app, true};
 }
 
-create::create(main_app& app) : app_(app) {
-    auto sub = app.add_subcommand("create",
-                                  "Create a jail instance for the container "
-                                  "described by the given bundle directory.");
+create::create(main_app& app, bool run_mode)
+    : app_(app), run_mode_(run_mode) {
+    CLI::App* sub;
+    if (run_mode_) {
+        sub = app.add_subcommand("run",
+                                 "Create and start the container described "
+                                 "by the given bundle directory.");
+        sub->add_flag("--detach,-d",
+                      detach_,
+                      "Return once the container has started rather than "
+                      "waiting for it to exit");
+        sub->add_flag("--keep",
+                      keep_,
+                      "Do not delete the container after it exits");
+    } else {
+        sub = app.add_subcommand("create",
+                                 "Create a jail instance for the container "
+                                 "described by the given bundle directory.");
+        detach_ = true;
+    }
     sub->add_option("--bundle,-b",
                     bundle_path_,
                     "Path to the OCI runtime bundle directory")
@@ -169,7 +190,7 @@ void create::run() {
     }
 
     auto& config_process = config["process"];
-    process proc{config_process, console_socket_, true, preserve_fds_};
+    process proc{config_process, console_socket_, detach_, preserve_fds_};
 
     // If the config contains a root path, use that, otherwise the
     // bundle directory must have a subdirectory named "root"
@@ -558,6 +579,9 @@ void create::run() {
             }
             state.remove_all();
         }
+        if (status == 0 && run_mode_) {
+            run_container(pid);
+        }
         ::exit(status);
     } else {
         // Perform the console-socket hand off if process.terminal is true.
@@ -639,6 +663,68 @@ void create::run() {
         // Execute the requested process inside the jail.
         proc.exec(stdin_fd, stdout_fd, stderr_fd);
     }
+}
+
+void create::run_container(pid_t pid) {
+    try {
+        start::start_container(app_, id_);
+    } catch (const std::exception& e) {
+        if (!keep_) {
+            delete_::delete_container(app_, id_, true);
+        }
+        throw;
+    }
+    if (detach_) {
+        ::exit(0);
+    }
+
+    // Forward signals to the container while we wait for it to exit, as
+    // crun does. SIGCHLD tells us when it has. Since we check for exit
+    // before each wait, it doesn't matter if the container exits before the
+    // signals are blocked. SIGCHLD is discarded rather than queued while its
+    // default action of ignoring it applies, so give it a handler.
+    struct sigaction sa;
+    sa.sa_handler = [](int) {};
+    sa.sa_flags = 0;
+    ::sigemptyset(&sa.sa_mask);
+    if (::sigaction(SIGCHLD, &sa, nullptr) < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "setting signal handler"};
+    }
+    ::sigset_t mask;
+    ::sigemptyset(&mask);
+    for (auto sig :
+         {SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2}) {
+        ::sigaddset(&mask, sig);
+    }
+    if (::sigprocmask(SIG_BLOCK, &mask, nullptr) < 0) {
+        throw std::system_error{
+            errno, std::system_category(), "setting signal mask"};
+    }
+
+    int status;
+    for (;;) {
+        auto res = ::waitpid(pid, &status, WNOHANG);
+        if (res < 0) {
+            throw std::system_error{errno, std::system_category(), "waitpid"};
+        }
+        if (res == pid) {
+            break;
+        }
+        int sig;
+        ::sigwait(&mask, &sig);
+        if (sig != SIGCHLD) {
+            ::kill(pid, sig);
+        }
+    }
+
+    if (!keep_) {
+        delete_::delete_container(app_, id_, false);
+    }
+    if (WIFSIGNALED(status)) {
+        ::exit(128 + WTERMSIG(status));
+    }
+    ::exit(WEXITSTATUS(status));
 }
 
 }  // namespace ocijail

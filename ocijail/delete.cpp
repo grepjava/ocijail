@@ -30,7 +30,13 @@ delete_::delete_(main_app& app) : app_(app) {
 }
 
 void delete_::run() {
-    auto state = app_.get_runtime_state(id_);
+    delete_container(app_, id_, force_);
+}
+
+void delete_::delete_container(main_app& app,
+                               std::string_view id,
+                               bool force) {
+    auto state = app.get_runtime_state(id);
 
     // If some other process has already deleted the state, just return.
     if (!state.exists()) {
@@ -59,7 +65,7 @@ void delete_::run() {
         // Nothing to do here
     } else if (state["status"] == "created") {
         ::kill(state["pid"], SIGKILL);
-    } else if (state["status"] == "running" && force_) {
+    } else if (state["status"] == "running" && force) {
         ::kill(state["pid"], SIGKILL);
     } else {
         std::stringstream ss;
@@ -82,13 +88,13 @@ void delete_::run() {
     }
     if (state["config"].contains("mounts") &&
         !state["config"]["mounts"].is_null()) {
-        unmount_volumes(app_, state, root_path, state["config"]["mounts"]);
+        unmount_volumes(app, state, root_path, state["config"]["mounts"]);
     }
     if (root_readonly) {
         unmount_root(app_, root_path);
     }
 
-    hook::run_hooks(app_, state["config"]["hooks"], "poststop", state);
+    hook::run_hooks(app, state["config"]["hooks"], "poststop", state);
 
     state.remove_all();
 }

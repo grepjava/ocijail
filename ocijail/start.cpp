@@ -27,7 +27,11 @@ start::start(main_app& app) : app_(app) {
 }
 
 void start::run() {
-    auto state = app_.get_runtime_state(id_);
+    start_container(app_, id_);
+}
+
+void start::start_container(main_app& app, std::string_view id) {
+    auto state = app.get_runtime_state(id);
     auto lk = state.lock();
     state.load();
 
@@ -41,7 +45,7 @@ void start::run() {
     state.save();
 
     auto& config_hooks = state["config"]["hooks"];
-    hook::run_hooks(app_, config_hooks, "prestart", state);
+    hook::run_hooks(app, config_hooks, "prestart", state);
 
     auto start_wait = state.get_state_dir() / "start_wait";
     auto fd = ::open(start_wait.c_str(), O_RDWR);
@@ -59,7 +63,7 @@ void start::run() {
 
     // Somehow sync with executing the container process before
     // running poststart hooks?
-    hook::run_hooks(app_, config_hooks, "poststart", state);
+    hook::run_hooks(app, config_hooks, "poststart", state);
 }
 
 }  // namespace ocijail
