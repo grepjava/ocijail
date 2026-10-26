@@ -349,6 +349,7 @@ class test_run(unittest.TestCase):
                             "foo=99"
                         ],
                         "args": [
+                            "sh",
                             "-c",
                             f"echo $foo > {scratch}/file"
                         ]
@@ -452,6 +453,7 @@ class test_run(unittest.TestCase):
                     {
                         "path": "/bin/sh",
                         "args": [
+                            "sh",
                             "-c",
                             f"echo 99 > {scratch}/file"
                         ]
@@ -473,6 +475,7 @@ class test_run(unittest.TestCase):
                     {
                         "path": "/rescue/sh",
                         "args": [
+                            "sh",
                             "-c",
                             "echo 42 > file"
                         ]
@@ -494,6 +497,7 @@ class test_run(unittest.TestCase):
                     {
                         "path": "/rescue/sh",
                         "args": [
+                            "sh",
                             "-c",
                             "echo 42 > /file"
                         ]
@@ -504,7 +508,7 @@ class test_run(unittest.TestCase):
             self.assertEqual(ret, 42)
 
     def hook(self, *args, timeout=None):
-        h = {"path": "/bin/sh", "args": ["-c", *args]}
+        h = {"path": "/bin/sh", "args": ["sh", "-c", *args]}
         if timeout:
             h["timeout"] = timeout
         return h
@@ -566,6 +570,28 @@ class test_run(unittest.TestCase):
         ret, _, _ = self.run_with_config(c)
         self.assertEqual(ret, 0)
 
+    def test_hook_argv(self):
+        # The hook's args are its argv, including argv[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            c = self.config()
+            c["process"]["args"] = ["sh", "-c", "exit 0"]
+            c["hooks"] = {
+                "createRuntime": [
+                    {
+                        "path": "/bin/sh",
+                        "args": [
+                            "myhook",
+                            "-c",
+                            f"ps -o args= -p $$ > {scratch}/file; exit 0",
+                        ]
+                    }
+                ]
+            }
+            ret, _, _ = self.run_with_config(c)
+            self.assertEqual(ret, 0)
+            with open(f"{scratch}/file") as f:
+                self.assertTrue(f.read().startswith("myhook -c "))
+
     def test_hook_poststop(self):
         with tempfile.TemporaryDirectory() as scratch:
             c = self.config()
@@ -578,6 +604,7 @@ class test_run(unittest.TestCase):
                             "foo=123"
                         ],
                         "args": [
+                            "sh",
                             "-c",
                             f"echo $foo > {scratch}/file"
                         ]
@@ -587,6 +614,7 @@ class test_run(unittest.TestCase):
                     {
                         "path": "/bin/rm",
                         "args": [
+                            "rm",
                             f"{scratch}/file"
                         ]
                     }

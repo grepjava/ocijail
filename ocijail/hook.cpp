@@ -132,11 +132,13 @@ int hook::run(main_app& app, const runtime_state& state) {
         envv.push_back(nullptr);
     }
 
-    argv.push_back(const_cast<char*>(path_.c_str()));
-    if (args_) {
+    // As for execv, args includes argv[0]. Without it, use the path.
+    if (args_ && !args_->empty()) {
         for (auto& s : *args_) {
             argv.push_back(const_cast<char*>(s.c_str()));
         }
+    } else {
+        argv.push_back(const_cast<char*>(path_.c_str()));
     }
     argv.push_back(nullptr);
 
@@ -218,7 +220,7 @@ int hook::run(main_app& app, const runtime_state& state) {
             envp = environ;
         }
         // The path should be absolute - no PATH lookup is needed
-        ::execve(argv[0], &argv[0], envp);
+        ::execve(path_.c_str(), &argv[0], envp);
         ::err(127, "error executing hook %s", path_.c_str());
     }
 }
